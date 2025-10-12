@@ -14,6 +14,7 @@ from .db import create_pool, ensure_schema
 from .importers.ibkr_flex import FlexImporter, read_statement_file
 from .logger import configure_logging
 from .prices import PriceUpdater
+from .fx import FxUpdater
 from .snapshots import SnapshotRecalculator
 from .backfill import BackfillService
 from .importers.swissquote import SwissquoteImporter
@@ -58,8 +59,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser(
+        "fx-update", help="Run a single FX rate update for held currencies"
+    )
+
+    sub.add_parser(
         "snapshot-recompute",
         help="Rebuild hourly positions/portfolio snapshots",
+    )
+
+    sub.add_parser(
+        "position-tickers",
+        help="Show the latest position snapshot mapped to yfinance tickers",
     )
 
     backfill_parser = sub.add_parser(
@@ -78,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run_scheduler(config, pool) -> None:
     flex_importer = FlexImporter(config.flex)
     price_updater = PriceUpdater(config.price, pool)
+    fx_updater = FxUpdater(config.fx, pool)
     snapshotper = SnapshotRecalculator(config.snapshot, pool)
 
     scheduler = BlockingScheduler(timezone="Europe/Amsterdam")
@@ -105,6 +116,14 @@ def run_scheduler(config, pool) -> None:
         max_instances=1,
     )
     scheduler.add_job(
+        fx_updater.run,
+        trigger="cron",
+        minute="10,25,40,55",
+        id="fx_updater",
+        misfire_grace_time=900,
+        max_instances=1,
+    )
+    scheduler.add_job(
         snapshotper.run,
         trigger="cron",
         minute="5,20,35,50",
@@ -123,7 +142,7 @@ def run_scheduler(config, pool) -> None:
         signal.signal(sig, _handle_signal)
 
     logging.getLogger(__name__).info(
-        "Scheduler started (prices every 15 min, snapshots after each cycle, Flex import daily 18:00 Europe/Amsterdam)"
+        "Scheduler started (prices every 15 min, FX every 15 min offset, snapshots after each cycle, Flex import daily 18:00 Europe/Amsterdam)"
     )
     scheduler.start()
 
@@ -194,9 +213,31 @@ def main(argv: list[str] | None = None) -> int:
             PriceUpdater(config.price, pool).run()
             return 0
 
+        if args.command == "fx-update":
+            ensure_schema(pool)
+            FxUpdater(config.fx, pool).run()
+            return 0
+
         if args.command == "snapshot-recompute":
             ensure_schema(pool)
             SnapshotRecalculator(config.snapshot, pool).run(None)
+            return 0
+
+        if args.command == "position-tickers":
+            ensure_schema(pool)
+            tickers = db.get_latest_position_tickers(pool)
+            if not tickers:
+                logging.getLogger(__name__).info(
+                    "No position snapshots with ticker mappings were found"
+                )
+                return 0
+
+            print("account_id,instrument_id,ticker,shares,currency")
+            for entry in tickers:
+                print(
+                    f"{entry.account_id},{entry.instrument_id},{entry.ticker},"
+                    f"{entry.shares},{entry.currency}"
+                )
             return 0
 
         if args.command == "backfill":
