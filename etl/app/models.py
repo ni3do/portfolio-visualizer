@@ -89,3 +89,12 @@ class PortfolioValueSnapshot:
     value_eur: Decimal
     ret: Optional[Decimal]
     drawdown: Optional[Decimal]
+
+
+@dataclass(frozen=True)
+class PositionTicker:
+    account_id: str
+    instrument_id: int
+    ticker: str
+    shares: Decimal
+    currency: str

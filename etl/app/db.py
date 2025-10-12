@@ -16,6 +16,7 @@ from .models import (
     Instrument,
     PortfolioValueSnapshot,
     PositionSnapshot,
+    PositionTicker,
     Price,
     PriceTarget,
     Transaction,
@@ -215,7 +216,10 @@ def upsert_instruments(pool: ConnectionPool, instruments: Iterable[Instrument]) 
         )
         ON CONFLICT (instrument_id) DO UPDATE SET
             symbol = EXCLUDED.symbol,
-            yfinance_symbol = COALESCE(instruments.yfinance_symbol, NULLIF(EXCLUDED.yfinance_symbol, '')),
+            yfinance_symbol = COALESCE(
+                NULLIF(instruments.yfinance_symbol, ''),
+                NULLIF(EXCLUDED.yfinance_symbol, '')
+            ),
             name = EXCLUDED.name,
             currency = EXCLUDED.currency,
             asset_class = EXCLUDED.asset_class,
@@ -456,6 +460,45 @@ def get_all_price_targets(pool: ConnectionPool) -> List[PriceTarget]:
         PriceTarget(
             instrument_id=row["instrument_id"],
             ticker=row["ticker"],
+            currency=row["currency"],
+        )
+        for row in rows
+    ]
+
+
+def get_latest_position_tickers(pool: ConnectionPool) -> List[PositionTicker]:
+    query = """
+    WITH latest_snapshot AS (
+        SELECT snapshot_at
+        FROM positions_snapshot
+        ORDER BY snapshot_at DESC
+        LIMIT 1
+    )
+    SELECT
+        ps.account_id,
+        ps.instrument_id,
+        ps.shares,
+        COALESCE(NULLIF(i.yfinance_symbol, ''), NULLIF(i.symbol, '')) AS ticker,
+        i.currency
+    FROM positions_snapshot ps
+    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
+    JOIN instruments i ON i.instrument_id = ps.instrument_id
+    WHERE ps.shares <> 0
+      AND COALESCE(NULLIF(i.yfinance_symbol, ''), NULLIF(i.symbol, '')) IS NOT NULL
+    ORDER BY ps.account_id, ps.instrument_id;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+
+    return [
+        PositionTicker(
+            account_id=row["account_id"],
+            instrument_id=row["instrument_id"],
+            ticker=row["ticker"],
+            shares=row["shares"],
             currency=row["currency"],
         )
         for row in rows

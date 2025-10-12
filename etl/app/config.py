@@ -49,6 +49,14 @@ class PriceSettings:
 
 
 @dataclass(frozen=True)
+class FxSettings:
+    base_currency: str
+    history_period: str
+    history_interval: str
+    source: str
+
+
+@dataclass(frozen=True)
 class SnapshotSettings:
     base_currency: str
     timezone: str
@@ -61,6 +69,7 @@ class AppConfig:
     db: DatabaseConfig
     flex: FlexConfig
     price: PriceSettings
+    fx: FxSettings
     snapshot: SnapshotSettings
 
 
@@ -89,9 +98,17 @@ def load_config() -> AppConfig:
         source=os.getenv("PRICE_SOURCE", "yfinance"),
     )
 
+    snapshot_base = os.getenv("SNAPSHOT_BASE_CCY", "EUR")
     snapshot = SnapshotSettings(
-        base_currency=os.getenv("SNAPSHOT_BASE_CCY", "EUR"),
+        base_currency=snapshot_base,
         timezone=os.getenv("SNAPSHOT_TIMEZONE", "Europe/Amsterdam"),
+    )
+
+    fx = FxSettings(
+        base_currency=os.getenv("FX_BASE_CCY", snapshot_base),
+        history_period=os.getenv("FX_HISTORY_PERIOD", "5d"),
+        history_interval=os.getenv("FX_HISTORY_INTERVAL", "1d"),
+        source=os.getenv("FX_SOURCE", "yfinance"),
     )
 
     log_level = os.getenv("ETL_LOG_LEVEL", "INFO").upper()
@@ -103,5 +120,6 @@ def load_config() -> AppConfig:
         db=db,
         flex=flex,
         price=price,
+        fx=fx,
         snapshot=snapshot,
     )

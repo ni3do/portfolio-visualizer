@@ -100,7 +100,29 @@ The raw Flex files are archived under the `etl_data` volume (`./secrets` keeps c
      -c "select instrument_id, as_of_utc, close, currency from prices order by as_of_utc desc limit 10;"
    ```
 
-3. Backfill historical prices/FX if needed:
+3. Refresh FX rates for held currencies:
+
+   ```bash
+   docker compose run --rm etl fx-update
+   ```
+
+   FX rates are stored in the `fx_rates` table using Yahoo Finance data; inspect recent entries with:
+
+   ```bash
+   docker compose exec postgres \
+     psql -U "$(cat secrets/postgres_app_user)" -d portfolio \
+     -c "select date_utc, from_ccy, to_ccy, rate from fx_rates order by date_utc desc limit 10;"
+   ```
+
+4. Inspect the latest position snapshot mapped to Yahoo tickers:
+
+   ```bash
+   docker compose run --rm etl position-tickers
+   ```
+
+   This prints a CSV list of account/instrument combinations, the shares held, and the ticker that will be queried from yfinance.
+
+5. Backfill historical prices/FX if needed:
 
    ```bash
    docker compose run --rm etl backfill --days 365 --snapshots
@@ -108,7 +130,7 @@ The raw Flex files are archived under the `etl_data` volume (`./secrets` keeps c
 
    Use `--prices-only`, `--fx-only`, or `--snapshots` to target specific datasets.
 
-4. Recompute a snapshot (optional, runs automatically after each price cycle):
+6. Recompute a snapshot (optional, runs automatically after each price cycle):
 
    ```bash
    docker compose run --rm etl snapshot-recompute
@@ -124,13 +146,13 @@ The raw Flex files are archived under the `etl_data` volume (`./secrets` keeps c
 
 Snapshots now run on an hourly cadence (each snapshot captures prices at the top of the hour).
 
-5. Restart the long-running service to enable the 15-minute schedule:
+6. Restart the long-running service to enable the 15-minute schedule:
 
    ```bash
    docker compose up -d etl
    ```
 
-   Prices are refreshed every 15 minutes; the Flex import still runs daily at 18:00 Europe/Amsterdam and snapshots trail each price cycle.
+   Prices are refreshed every 15 minutes, FX rates every 15 minutes (offset by 10 minutes to avoid clashing with price updates); the Flex import still runs daily at 18:00 Europe/Amsterdam and snapshots trail each price cycle.
 
 ### Ticker Mapping
 
@@ -140,6 +162,10 @@ Snapshots now run on an hourly cadence (each snapshot captures prices at the top
   - `PRICE_HISTORY_PERIOD` (default `5d`)
   - `PRICE_HISTORY_INTERVAL` (default `15m`)
   - `PRICE_SOURCE` (default `yfinance`)
+  - `FX_BASE_CCY` (defaults to `SNAPSHOT_BASE_CCY`)
+  - `FX_HISTORY_PERIOD` (default `5d`)
+  - `FX_HISTORY_INTERVAL` (default `1d`)
+  - `FX_SOURCE` (default `yfinance`)
   - `SNAPSHOT_BASE_CCY` (default `EUR`)
   - `SNAPSHOT_TIMEZONE` (default `Europe/Amsterdam`)
   - `YF_CACHE_DIR` (default `/tmp/yfinance_cache` inside the container)
