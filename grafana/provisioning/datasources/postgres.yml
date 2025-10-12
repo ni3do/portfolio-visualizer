@@ -1,0 +1,16 @@
+apiVersion: 1
+datasources:
+  - name: Portfolio Postgres
+    type: postgres
+    access: proxy
+    isDefault: true
+    uid: portfolio-postgres
+    url: postgres:5432
+    database: portfolio
+    user: ${PORTFOLIO_DB_USER}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    secureJsonData:
+      password: ${PORTFOLIO_DB_PASSWORD}
