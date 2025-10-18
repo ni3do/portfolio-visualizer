@@ -63,6 +63,12 @@ class SnapshotSettings:
 
 
 @dataclass(frozen=True)
+class InstrumentMetadataSettings:
+    source: str
+    sleep_seconds: float
+
+
+@dataclass(frozen=True)
 class AppConfig:
     log_level: str
     run_mode: str
@@ -71,6 +77,7 @@ class AppConfig:
     price: PriceSettings
     fx: FxSettings
     snapshot: SnapshotSettings
+    instrument: InstrumentMetadataSettings
 
 
 def load_config() -> AppConfig:
@@ -111,6 +118,11 @@ def load_config() -> AppConfig:
         source=os.getenv("FX_SOURCE", "yfinance"),
     )
 
+    instrument = InstrumentMetadataSettings(
+        source=os.getenv("INSTRUMENT_SOURCE", "yfinance"),
+        sleep_seconds=float(os.getenv("INSTRUMENT_SLEEP_SECONDS", "1.0")),
+    )
+
     log_level = os.getenv("ETL_LOG_LEVEL", "INFO").upper()
     run_mode = os.getenv("ETL_RUN_MODE", "scheduler")
 
@@ -122,4 +134,5 @@ def load_config() -> AppConfig:
         price=price,
         fx=fx,
         snapshot=snapshot,
+        instrument=instrument,
     )
