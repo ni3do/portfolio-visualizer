@@ -98,3 +98,9 @@ class PositionTicker:
     ticker: str
     shares: Decimal
     currency: str
+
+
+@dataclass(frozen=True)
+class InstrumentMetadataTarget:
+    instrument_id: int
+    ticker: str

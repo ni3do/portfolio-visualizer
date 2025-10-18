@@ -14,6 +14,7 @@ from .models import (
     CashMovement,
     FxRate,
     Instrument,
+    InstrumentMetadataTarget,
     PortfolioValueSnapshot,
     PositionSnapshot,
     PositionTicker,
@@ -23,6 +24,17 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+ALLOWED_METADATA_COLUMNS = {
+    "name",
+    "currency",
+    "asset_class",
+    "sector",
+    "country",
+    "region",
+    "primary_exchange",
+}
 
 
 RENAME_LEGACY_SNAPSHOTS = """
@@ -514,6 +526,82 @@ def list_instrument_currencies(pool: ConnectionPool) -> List[str]:
             rows = cur.fetchall()
 
     return [row["currency"] for row in rows]
+
+
+def list_instrument_metadata_targets(
+    pool: ConnectionPool, include_all: bool = False
+) -> List[InstrumentMetadataTarget]:
+    query = [
+        "SELECT",
+        "    instrument_id,",
+        "    COALESCE(NULLIF(yfinance_symbol, ''), NULLIF(symbol, '')) AS ticker",
+        "FROM instruments",
+        "WHERE COALESCE(NULLIF(yfinance_symbol, ''), NULLIF(symbol, '')) IS NOT NULL",
+    ]
+
+    if not include_all:
+        query.append("  AND (")
+        query.append("        NULLIF(sector, '') IS NULL")
+        query.append("     OR NULLIF(country, '') IS NULL")
+        query.append("     OR NULLIF(name, '') IS NULL")
+        query.append("     OR NULLIF(primary_exchange, '') IS NULL")
+        query.append("     OR NULLIF(asset_class, '') IS NULL")
+        query.append("    )")
+
+    query.append("ORDER BY instrument_id;")
+    sql_query = "\n".join(query)
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql_query)
+            rows = cur.fetchall()
+
+    return [
+        InstrumentMetadataTarget(
+            instrument_id=row["instrument_id"],
+            ticker=row["ticker"],
+        )
+        for row in rows
+    ]
+
+
+def update_instrument_metadata(
+    pool: ConnectionPool, instrument_id: int, metadata: Dict[str, object]
+) -> int:
+    filtered = {
+        key: value
+        for key, value in metadata.items()
+        if key in ALLOWED_METADATA_COLUMNS and value not in (None, "")
+    }
+
+    if not filtered:
+        return 0
+
+    assignments = [
+        sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column))
+        for column in filtered.keys()
+    ]
+
+    query = sql.SQL(
+        "UPDATE instruments SET {assignments} WHERE instrument_id = %(instrument_id)s"
+    ).format(assignments=sql.SQL(", ").join(assignments))
+
+    params: Dict[str, object] = dict(filtered)
+    params["instrument_id"] = instrument_id
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rowcount = cur.rowcount
+        conn.commit()
+
+    logger.debug(
+        "Instrument %s metadata updated with fields: %s",
+        instrument_id,
+        sorted(filtered.keys()),
+    )
+
+    return rowcount
 
 
 def upsert_prices(pool: ConnectionPool, prices: Iterable[Price]) -> int:

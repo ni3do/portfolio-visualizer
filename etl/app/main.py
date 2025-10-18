@@ -19,6 +19,7 @@ from .snapshots import SnapshotRecalculator
 from .backfill import BackfillService
 from .importers.swissquote import SwissquoteImporter
 from .utils import clear_yfinance_cache
+from .instruments import InstrumentMetadataUpdater
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +83,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("clear-cache", help="Clear yfinance cache files")
 
+    instrument_parser = sub.add_parser(
+        "instrument-update",
+        help="Refresh instrument metadata such as sector, country, and exchange",
+    )
+    instrument_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Update all instruments (default updates entries missing metadata)",
+    )
+
     return parser
 
 
@@ -90,6 +101,7 @@ def run_scheduler(config, pool) -> None:
     price_updater = PriceUpdater(config.price, pool)
     fx_updater = FxUpdater(config.fx, pool)
     snapshotper = SnapshotRecalculator(config.snapshot, pool)
+    instrument_updater = InstrumentMetadataUpdater(config.instrument, pool)
 
     scheduler = BlockingScheduler(timezone="Europe/Amsterdam")
     scheduler.add_job(
@@ -132,6 +144,16 @@ def run_scheduler(config, pool) -> None:
         max_instances=1,
     )
 
+    scheduler.add_job(
+        lambda: instrument_updater.run(include_all=False),
+        trigger="cron",
+        hour=3,
+        minute=30,
+        id="instrument_metadata_refresh",
+        misfire_grace_time=3600,
+        max_instances=1,
+    )
+
     def _handle_signal(signum, _frame):
         logging.getLogger(__name__).info(
             "Received signal %s, shutting down scheduler", signum
@@ -142,7 +164,7 @@ def run_scheduler(config, pool) -> None:
         signal.signal(sig, _handle_signal)
 
     logging.getLogger(__name__).info(
-        "Scheduler started (prices every 15 min, FX every 15 min offset, snapshots after each cycle, Flex import daily 18:00 Europe/Amsterdam)"
+        "Scheduler started (prices every 15 min, FX every 15 min offset, snapshots after each cycle, Flex import daily 18:00 Europe/Amsterdam, instrument metadata 03:30)"
     )
     scheduler.start()
 
@@ -247,6 +269,13 @@ def main(argv: list[str] | None = None) -> int:
                 include_prices=not args.fx_only,
                 include_fx=not args.prices_only,
                 include_snapshots=args.snapshots,
+            )
+            return 0
+
+        if args.command == "instrument-update":
+            ensure_schema(pool)
+            InstrumentMetadataUpdater(config.instrument, pool).run(
+                include_all=args.all
             )
             return 0
 

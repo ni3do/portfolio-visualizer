@@ -146,7 +146,15 @@ The raw Flex files are archived under the `etl_data` volume (`./secrets` keeps c
 
 Snapshots now run on an hourly cadence (each snapshot captures prices at the top of the hour).
 
-6. Restart the long-running service to enable the 15-minute schedule:
+7. Refresh instrument metadata (sector, country, exchange) for exposure reporting:
+
+   ```bash
+   docker compose run --rm etl instrument-update
+   ```
+
+   Pass `--all` to refresh every mapped ticker; by default only instruments missing metadata fields are updated.
+
+8. Restart the long-running service to enable the 15-minute schedule:
 
    ```bash
    docker compose up -d etl
@@ -196,7 +204,7 @@ Imports automatically trigger a 365-day price/FX backfill and hourly snapshot re
 
 ## Monitoring & Dashboards
 
-- The Grafana dashboard `Portfolio Monitoring` (see `grafana/dashboards/overview.json`) shows price staleness, ingest activity, snapshot freshness, and account coverage.
+- The Grafana dashboard `Portfolio Monitoring` (see `grafana/dashboards/overview.json`) now centers on portfolio value, unrealized PnL by position, recent trades, and exposure breakdowns by country, sector, and currency.
 - Access Grafana at http://localhost:3000 and import the provisioned dashboard automatically after `docker compose up -d`.
 - Panels refresh every minute; most queries use the `prices`, `portfolio_value_snapshot`, and related tables, so ensure those tables are populated first.
 

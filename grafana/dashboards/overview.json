@@ -5,404 +5,18 @@
   "timezone": "browser",
   "schemaVersion": 38,
   "version": 1,
-  "refresh": "1m",
+  "refresh": "5m",
   "tags": [
     "portfolio",
     "monitoring"
   ],
   "time": {
-    "from": "now-30d",
+    "from": "now-90d",
     "to": "now"
   },
   "panels": [
     {
       "id": 1,
-      "title": "Minutes Since Last Price Update",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 0
-      },
-      "targets": [
-        {
-          "format": "table",
-          "refId": "A",
-          "rawSql": "SELECT 'minutes_since_last_price' AS metric, EXTRACT(EPOCH FROM (NOW() - MAX(as_of_utc))) / 60 AS value FROM prices;",
-          "rawQuery": true
-        }
-      ],
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 1,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 60
-              }
-            ]
-          },
-          "unit": "m"
-        },
-        "overrides": []
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 2,
-      "title": "Stale Instruments (Top 10)",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 16,
-        "x": 8,
-        "y": 0
-      },
-      "targets": [
-        {
-          "format": "table",
-          "refId": "A",
-          "rawSql": "SELECT i.symbol, MAX(p.as_of_utc) AS last_price_utc, ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(p.as_of_utc))) / 60, 2) AS minutes_stale FROM prices p JOIN instruments i ON i.instrument_id = p.instrument_id GROUP BY i.symbol ORDER BY last_price_utc ASC LIMIT 10;",
-          "rawQuery": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "center"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 30
-              },
-              {
-                "color": "red",
-                "value": 60
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
-        }
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 3,
-      "title": "Prices Ingested per Day",
-      "type": "timeseries",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 6
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "refId": "A",
-          "rawSql": "SELECT $__timeGroup(created_at::timestamp, '1d') AS time, COUNT(*) AS prices_ingested FROM prices GROUP BY 1 ORDER BY 1;",
-          "rawQuery": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 4,
-      "title": "Latest Snapshot per Account",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 15
-      },
-      "targets": [
-        {
-          "format": "table",
-          "refId": "A",
-          "rawSql": "SELECT account_id, MAX(snapshot_at) AS latest_snapshot_at, ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(snapshot_at))) / 3600, 2) AS hours_since_snapshot FROM portfolio_value_snapshot GROUP BY account_id ORDER BY latest_snapshot_at DESC;",
-          "rawQuery": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "center"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 2
-              }
-            ]
-          },
-          "unit": "h",
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
-        }
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 5,
-      "title": "Accounts Missing Today",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 15
-      },
-      "targets": [
-        {
-          "format": "table",
-          "refId": "A",
-          "rawSql": "SELECT 'accounts_stale' AS metric, COUNT(*)::double precision AS value FROM (SELECT account_id, MAX(snapshot_at) AS last_snapshot FROM portfolio_value_snapshot GROUP BY account_id) t WHERE last_snapshot < NOW() - INTERVAL '2 hours';",
-          "rawQuery": true
-        }
-      ],
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 7,
-      "title": "Current Positions",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "targets": [
-        {
-          "format": "table",
-          "refId": "A",
-          "rawSql": "WITH latest_positions AS (SELECT * FROM positions_snapshot WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM positions_snapshot)) SELECT lp.account_id, inst.symbol, lp.shares, lp.cost_basis_eur, pr.close AS last_price, (lp.shares * pr.close) AS market_value, (lp.shares * pr.close) - lp.cost_basis_eur AS pnl_eur FROM latest_positions lp JOIN instruments inst ON inst.instrument_id = lp.instrument_id LEFT JOIN LATERAL (SELECT close FROM prices p WHERE p.instrument_id = lp.instrument_id ORDER BY as_of_utc DESC LIMIT 1) pr ON true ORDER BY market_value DESC;",
-          "rawQuery": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "center"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
-        }
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 6,
-      "title": "Snapshots Recorded per Day",
-      "type": "timeseries",
-      "datasource": {
-        "type": "postgres",
-        "uid": "portfolio-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 34
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "refId": "A",
-          "rawSql": "SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, COUNT(*) AS snapshots FROM portfolio_value_snapshot GROUP BY 1 ORDER BY 1;",
-          "rawQuery": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "count"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "pluginVersion": "9.5.0"
-    },
-    {
-      "id": 8,
       "title": "Portfolio Value (EUR)",
       "type": "timeseries",
       "datasource": {
@@ -413,18 +27,20 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 0
       },
       "targets": [
         {
-          "format": "time_series",
           "refId": "A",
-          "rawSql": "SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, SUM(value_eur) AS portfolio_value_eur FROM portfolio_value_snapshot GROUP BY 1 ORDER BY 1;",
-          "rawQuery": true
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, SUM(value_eur) AS portfolio_value_eur FROM portfolio_value_snapshot GROUP BY 1 ORDER BY 1;"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -434,22 +50,404 @@
                 "value": null
               }
             ]
-          },
-          "unit": "currencyEUR"
+          }
         },
         "overrides": []
       },
       "options": {
         "legend": {
           "calcs": [
-            "max",
-            "lastNotNull"
+            "lastNotNull",
+            "max"
           ],
           "displayMode": "table",
           "placement": "right"
         },
         "tooltip": {
           "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 2,
+      "title": "Unrealized PnL by Position",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - ps.cost_basis_eur\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE (ps.shares * lp.close * fx.rate) - ps.cost_basis_eur\n        END AS unrealized_pnl_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT symbol || COALESCE(' – ' || name, '') AS label, SUM(unrealized_pnl_base)::double precision AS value\nFROM position_values\nWHERE unrealized_pnl_base IS NOT NULL\nGROUP BY symbol, name\nORDER BY value DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "orientation": "horizontal"
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 3,
+      "title": "Recent Trades",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT t.date_time_utc AS trade_time, t.account_id, i.symbol, t.type, t.qty, t.price, t.currency, t.net_amount, t.fees FROM transactions t JOIN instruments i ON i.instrument_id = t.instrument_id ORDER BY t.date_time_utc DESC LIMIT 25;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "custom": {
+            "align": "center"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trade_time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime"
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "trade_time"
+                ]
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 4,
+      "title": "Country Exposure",
+      "type": "piechart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        i.country,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT COALESCE(country, 'Unknown') AS label, SUM(market_value_base)::double precision AS value\nFROM position_values\nWHERE market_value_base IS NOT NULL\nGROUP BY COALESCE(country, 'Unknown')\nORDER BY value DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "pie",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 5,
+      "title": "Sector Exposure",
+      "type": "piechart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        i.sector,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT COALESCE(sector, 'Unknown') AS label, SUM(market_value_base)::double precision AS value\nFROM position_values\nWHERE market_value_base IS NOT NULL\nGROUP BY COALESCE(sector, 'Unknown')\nORDER BY value DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "pie",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 6,
+      "title": "Currency Exposure",
+      "type": "piechart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT COALESCE(instrument_ccy, 'Unknown') AS label, SUM(market_value_base)::double precision AS value\nFROM position_values\nWHERE market_value_base IS NOT NULL\nGROUP BY COALESCE(instrument_ccy, 'Unknown')\nORDER BY value DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "pie",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 7,
+      "title": "Open Positions",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        i.sector,\n        i.country,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        lp.as_of_utc,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - ps.cost_basis_eur\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE (ps.shares * lp.close * fx.rate) - ps.cost_basis_eur\n        END AS unrealized_pnl_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT\n    account_id,\n    symbol,\n    name,\n    shares::double precision AS shares,\n    instrument_ccy AS currency,\n    close::double precision AS last_price,\n    as_of_utc AS price_as_of,\n    cost_basis_eur::double precision AS cost_basis_eur,\n    market_value_base::double precision AS market_value_eur,\n    unrealized_pnl_base::double precision AS unrealized_pnl_eur,\n    CASE\n        WHEN SUM(market_value_base) OVER () > 0 THEN (market_value_base / SUM(market_value_base) OVER ())\n        ELSE NULL\n    END::double precision AS portfolio_weight,\n    sector,\n    country,\n    base_ccy AS base_currency\nFROM position_values\nWHERE market_value_base IS NOT NULL\nORDER BY market_value_base DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "custom": {
+            "align": "center"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "price_as_of"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime"
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shares"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "include",
+                "names": [
+                  "cost_basis_eur",
+                  "market_value_eur",
+                  "unrealized_pnl_eur"
+                ]
+              }
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_price"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currency"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "portfolio_weight"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
         }
       },
       "pluginVersion": "9.5.0"
