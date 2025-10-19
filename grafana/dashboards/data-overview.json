@@ -1,0 +1,556 @@
+{
+  "id": null,
+  "uid": "data-overview",
+  "title": "Data Overview",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5m",
+  "tags": [
+    "portfolio",
+    "data"
+  ],
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Instruments",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS total FROM instruments;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 2,
+      "title": "Transactions",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS total FROM transactions;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 3,
+      "title": "Prices",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS total FROM prices;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 4,
+      "title": "Portfolio Snapshots",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS total FROM portfolio_value_snapshot;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 5,
+      "title": "Rows by Table",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH table_counts AS (\n    SELECT 'instruments' AS table_name, COUNT(*)::double precision AS row_count FROM instruments\n    UNION ALL\n    SELECT 'transactions' AS table_name, COUNT(*)::double precision AS row_count FROM transactions\n    UNION ALL\n    SELECT 'cash_movements' AS table_name, COUNT(*)::double precision AS row_count FROM cash_movements\n    UNION ALL\n    SELECT 'prices' AS table_name, COUNT(*)::double precision AS row_count FROM prices\n    UNION ALL\n    SELECT 'fx_rates' AS table_name, COUNT(*)::double precision AS row_count FROM fx_rates\n    UNION ALL\n    SELECT 'positions_snapshot' AS table_name, COUNT(*)::double precision AS row_count FROM positions_snapshot\n    UNION ALL\n    SELECT 'portfolio_value_snapshot' AS table_name, COUNT(*)::double precision AS row_count FROM portfolio_value_snapshot\n)\nSELECT table_name AS label, row_count AS value\nFROM table_counts\nORDER BY row_count DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "orientation": "horizontal",
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 6,
+      "title": "Latest Data Timestamp",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH table_meta AS (\n    SELECT 'instruments' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(created_at) AS last_timestamp\n    FROM instruments\n    UNION ALL\n    SELECT 'transactions' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(date_time_utc) AS last_timestamp\n    FROM transactions\n    UNION ALL\n    SELECT 'cash_movements' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(date_time_utc) AS last_timestamp\n    FROM cash_movements\n    UNION ALL\n    SELECT 'prices' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(as_of_utc) AS last_timestamp\n    FROM prices\n    UNION ALL\n    SELECT 'fx_rates' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(date_utc)::timestamp AT TIME ZONE 'UTC' AS last_timestamp\n    FROM fx_rates\n    UNION ALL\n    SELECT 'positions_snapshot' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(snapshot_at) AS last_timestamp\n    FROM positions_snapshot\n    UNION ALL\n    SELECT 'portfolio_value_snapshot' AS table_name,\n           COUNT(*)::bigint AS row_count,\n           MAX(snapshot_at) AS last_timestamp\n    FROM portfolio_value_snapshot\n)\nSELECT table_name,\n       row_count::double precision AS row_count,\n       last_timestamp\nFROM table_meta\nORDER BY table_name;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "custom": {
+            "align": "center"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "row_count"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_timestamp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime"
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 7,
+      "title": "Daily Rows Added",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH combined AS (\n    SELECT date_trunc('day', created_at) AS bucket, 'instruments' AS table_name, COUNT(*)::bigint AS row_count\n    FROM instruments\n    WHERE $__timeFilter(created_at)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', date_time_utc) AS bucket, 'transactions' AS table_name, COUNT(*)::bigint AS row_count\n    FROM transactions\n    WHERE $__timeFilter(date_time_utc)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', date_time_utc) AS bucket, 'cash_movements' AS table_name, COUNT(*)::bigint AS row_count\n    FROM cash_movements\n    WHERE $__timeFilter(date_time_utc)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', as_of_utc) AS bucket, 'prices' AS table_name, COUNT(*)::bigint AS row_count\n    FROM prices\n    WHERE $__timeFilter(as_of_utc)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', date_utc::timestamp) AS bucket, 'fx_rates' AS table_name, COUNT(*)::bigint AS row_count\n    FROM fx_rates\n    WHERE $__timeFilter(date_utc::timestamp)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', snapshot_at) AS bucket, 'positions_snapshot' AS table_name, COUNT(*)::bigint AS row_count\n    FROM positions_snapshot\n    WHERE $__timeFilter(snapshot_at)\n    GROUP BY 1\n    UNION ALL\n    SELECT date_trunc('day', snapshot_at) AS bucket, 'portfolio_value_snapshot' AS table_name, COUNT(*)::bigint AS row_count\n    FROM portfolio_value_snapshot\n    WHERE $__timeFilter(snapshot_at)\n    GROUP BY 1\n)\nSELECT bucket AS time,\n       table_name AS metric,\n       row_count::double precision AS value\nFROM combined\nORDER BY bucket, table_name;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 8,
+      "title": "Data Gaps by Type",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT gap_type AS label,\n       COUNT(*)::double precision AS value\nFROM data_gaps\nGROUP BY gap_type\nORDER BY gap_type;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "orientation": "horizontal",
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 9,
+      "title": "Outstanding Data Gaps",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT gap_type,\n       target_timestamp,\n       instrument_id,\n       account_id,\n       details\nFROM data_gaps\nORDER BY target_timestamp DESC\nLIMIT 200;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "target_timestamp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime"
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 10,
+      "title": "Gap Count (Last 7 Days)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 31
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', detected_at) AS time,\n       COUNT(*)::double precision AS value\nFROM data_gaps\nWHERE detected_at >= NOW() - INTERVAL '7 days'\nGROUP BY time\nORDER BY time;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "hidden",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0"
+    },
+    {
+      "id": 11,
+      "title": "Oldest Gap Age (hours)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(detected_at))) / 3600, 0)::double precision AS hours_old\nFROM data_gaps;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "mappings": [],
+          "unit": "hour",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 24
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "9.5.0"
+    }
+  ],
+  "templating": {
+    "list": []
+  }
+}

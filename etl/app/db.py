@@ -3,15 +3,17 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+from psycopg.types.json import Json
 
 from .config import DatabaseConfig
 from .models import (
     CashMovement,
+    DataGap,
     FxRate,
     Instrument,
     InstrumentMetadataTarget,
@@ -19,11 +21,15 @@ from .models import (
     PositionSnapshot,
     PositionTicker,
     Price,
+    HourlyPrice,
     PriceTarget,
+    RealizedPnlLot,
     Transaction,
 )
 
 logger = logging.getLogger(__name__)
+
+_ANY = object()
 
 
 ALLOWED_METADATA_COLUMNS = {
@@ -149,6 +155,21 @@ SCHEMA_STATEMENTS = [
     ON prices (instrument_id, as_of_utc DESC);
     """,
     """
+    CREATE TABLE IF NOT EXISTS prices_hourly (
+        as_of_utc TIMESTAMPTZ NOT NULL,
+        instrument_id BIGINT NOT NULL REFERENCES instruments(instrument_id),
+        close NUMERIC NOT NULL,
+        currency TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (as_of_utc, instrument_id)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prices_hourly_instrument_time
+    ON prices_hourly (instrument_id, as_of_utc DESC);
+    """,
+    """
     CREATE TABLE IF NOT EXISTS positions_snapshot (
         snapshot_at TIMESTAMPTZ NOT NULL,
         account_id TEXT NOT NULL,
@@ -167,9 +188,16 @@ SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS portfolio_value_snapshot (
         snapshot_at TIMESTAMPTZ NOT NULL,
         account_id TEXT NOT NULL,
-        value_eur NUMERIC NOT NULL,
+        positions_value_eur NUMERIC,
+        cash_value_eur NUMERIC,
+        nav_eur NUMERIC,
+        unrealized_pnl_eur NUMERIC,
+        realized_pnl_eur NUMERIC,
+        delta_eur NUMERIC,
         ret NUMERIC,
         drawdown NUMERIC,
+        value_eur NUMERIC,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (snapshot_at, account_id)
     );
     """,
@@ -186,6 +214,75 @@ SCHEMA_STATEMENTS = [
         source TEXT NOT NULL,
         PRIMARY KEY (date_utc, from_ccy, to_ccy)
     );
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS positions_value_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS cash_value_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS nav_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS unrealized_pnl_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS realized_pnl_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS delta_eur NUMERIC;
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS value_eur NUMERIC;
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS realized_pnl_fifo (
+        account_id TEXT NOT NULL,
+        instrument_id BIGINT NOT NULL REFERENCES instruments(instrument_id),
+        lot_opened_at TIMESTAMPTZ NOT NULL,
+        lot_closed_at TIMESTAMPTZ NOT NULL,
+        close_snapshot_at TIMESTAMPTZ NOT NULL,
+        qty_closed NUMERIC NOT NULL,
+        proceeds_ccy NUMERIC NOT NULL,
+        proceeds_eur NUMERIC NOT NULL,
+        cost_ccy NUMERIC NOT NULL,
+        cost_eur NUMERIC NOT NULL,
+        pnl_ccy NUMERIC NOT NULL,
+        pnl_eur NUMERIC NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (account_id, instrument_id, lot_opened_at, lot_closed_at)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_realized_pnl_fifo_snapshot
+        ON realized_pnl_fifo (close_snapshot_at, account_id, instrument_id);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS data_gaps (
+        gap_type TEXT NOT NULL,
+        target_timestamp TIMESTAMPTZ NOT NULL,
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        instrument_id BIGINT REFERENCES instruments(instrument_id),
+        account_id TEXT,
+        details JSONB,
+        PRIMARY KEY (gap_type, target_timestamp, instrument_id, account_id)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_data_gaps_type_timestamp
+        ON data_gaps (gap_type, target_timestamp DESC);
     """,
 ]
 
@@ -528,6 +625,31 @@ def list_instrument_currencies(pool: ConnectionPool) -> List[str]:
     return [row["currency"] for row in rows]
 
 
+def get_instruments_by_ids(
+    pool: ConnectionPool, instrument_ids: Sequence[int]
+) -> Dict[int, Dict[str, object]]:
+    if not instrument_ids:
+        return {}
+
+    query = """
+    SELECT instrument_id,
+           symbol,
+           yfinance_symbol,
+           name,
+           currency,
+           asset_class
+    FROM instruments
+    WHERE instrument_id = ANY(%s);
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (list(instrument_ids),))
+            rows = cur.fetchall()
+
+    return {row["instrument_id"]: row for row in rows}
+
+
 def list_instrument_metadata_targets(
     pool: ConnectionPool, include_all: bool = False
 ) -> List[InstrumentMetadataTarget]:
@@ -644,10 +766,65 @@ def upsert_prices(pool: ConnectionPool, prices: Iterable[Price]) -> int:
     return len(rows)
 
 
+def upsert_prices_hourly(pool: ConnectionPool, prices: Iterable[HourlyPrice]) -> int:
+    prices = list(prices)
+    if not prices:
+        return 0
+
+    query = sql.SQL(
+        """
+        INSERT INTO prices_hourly (
+            as_of_utc, instrument_id, close, currency, source
+        )
+        VALUES (
+            %(as_of_utc)s, %(instrument_id)s, %(close)s, %(currency)s, %(source)s
+        )
+        ON CONFLICT (as_of_utc, instrument_id) DO UPDATE SET
+            close = EXCLUDED.close,
+            currency = EXCLUDED.currency,
+            source = EXCLUDED.source;
+        """
+    )
+
+    rows = [
+        {
+            "as_of_utc": price.as_of_utc,
+            "instrument_id": price.instrument_id,
+            "close": price.close,
+            "currency": price.currency,
+            "source": price.source,
+        }
+        for price in prices
+    ]
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(query, rows)
+        conn.commit()
+
+    logger.info("Upserted %s hourly prices", len(rows))
+    return len(rows)
+
+
 def get_transactions_up_to(pool: ConnectionPool, cutoff: datetime):
     query = """
     SELECT account_id, instrument_id, date_time_utc, qty, price, fees, net_amount, currency
     FROM transactions
+    WHERE date_time_utc <= %s
+    ORDER BY date_time_utc ASC;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (cutoff,))
+            rows = cur.fetchall()
+    return rows
+
+
+def get_cash_movements_up_to(pool: ConnectionPool, cutoff: datetime):
+    query = """
+    SELECT account_id, date_time_utc, currency, amount
+    FROM cash_movements
     WHERE date_time_utc <= %s
     ORDER BY date_time_utc ASC;
     """
@@ -694,6 +871,74 @@ def get_latest_prices(
     }
 
 
+def get_latest_hourly_prices(
+    pool: ConnectionPool, instrument_ids: Sequence[int], cutoff: datetime
+) -> Dict[int, Price]:
+    if not instrument_ids:
+        return {}
+
+    query = """
+    SELECT DISTINCT ON (instrument_id)
+        instrument_id,
+        as_of_utc,
+        close,
+        currency,
+        source
+    FROM prices_hourly
+    WHERE instrument_id = ANY(%s) AND as_of_utc <= %s
+    ORDER BY instrument_id, as_of_utc DESC;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (list(instrument_ids), cutoff))
+            rows = cur.fetchall()
+
+    return {
+        row["instrument_id"]: Price(
+            instrument_id=row["instrument_id"],
+            as_of_utc=row["as_of_utc"],
+            close=row["close"],
+            currency=row["currency"],
+            source=row["source"],
+        )
+        for row in rows
+    }
+
+
+def get_latest_prices_with_hourly(
+    pool: ConnectionPool, instrument_ids: Sequence[int], cutoff: datetime
+) -> Dict[int, Price]:
+    if not instrument_ids:
+        return {}
+
+    latest: Dict[int, Price] = get_latest_hourly_prices(pool, instrument_ids, cutoff)
+    missing = [inst for inst in instrument_ids if inst not in latest]
+    if missing:
+        latest.update(get_latest_prices(pool, missing, cutoff))
+    return latest
+
+
+def get_hourly_prices_between(
+    pool: ConnectionPool,
+    instrument_id: int,
+    start_at: datetime,
+    end_at: datetime,
+) -> List[Dict[str, object]]:
+    query = """
+    SELECT as_of_utc, close, currency, source
+    FROM prices_hourly
+    WHERE instrument_id = %s
+      AND as_of_utc BETWEEN %s AND %s
+    ORDER BY as_of_utc ASC;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (instrument_id, start_at, end_at))
+            return cur.fetchall()
+
+
 def get_fx_rates_for_date(pool: ConnectionPool, target_date: date):
     query = """
     SELECT from_ccy, to_ccy, rate, source
@@ -718,14 +963,225 @@ def get_fx_rates_for_date(pool: ConnectionPool, target_date: date):
     }
 
 
+def get_fx_rate_on_or_before(
+    pool: ConnectionPool, from_ccy: str, to_ccy: str, target_date: date
+) -> Optional[FxRate]:
+    query = """
+    SELECT date_utc, rate, source
+    FROM fx_rates
+    WHERE from_ccy = %s AND to_ccy = %s AND date_utc <= %s
+    ORDER BY date_utc DESC
+    LIMIT 1;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (from_ccy, to_ccy, target_date))
+            row = cur.fetchone()
+
+    if not row:
+        return None
+
+    return FxRate(
+        date_utc=row["date_utc"],
+        from_ccy=from_ccy,
+        to_ccy=to_ccy,
+        rate=row["rate"],
+        source=row["source"],
+    )
+
+
+def upsert_data_gaps(pool: ConnectionPool, gaps: Iterable[DataGap]) -> int:
+    gaps = list(gaps)
+    if not gaps:
+        return 0
+
+    query = sql.SQL(
+        """
+        INSERT INTO data_gaps (
+            gap_type,
+            target_timestamp,
+            instrument_id,
+            account_id,
+            details,
+            detected_at
+        ) VALUES (
+            %(gap_type)s,
+            %(target_timestamp)s,
+            %(instrument_id)s,
+            %(account_id)s,
+            %(details)s,
+            %(detected_at)s
+        )
+        ON CONFLICT (gap_type, target_timestamp, instrument_id, account_id)
+        DO UPDATE SET
+            detected_at = EXCLUDED.detected_at,
+            details = EXCLUDED.details;
+        """
+    )
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "gap_type": gap.gap_type,
+            "target_timestamp": gap.target_timestamp,
+            "instrument_id": gap.instrument_id,
+            "account_id": gap.account_id,
+            "details": Json(gap.details) if gap.details is not None else None,
+            "detected_at": gap.detected_at or now,
+        }
+        for gap in gaps
+    ]
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(query, rows)
+        conn.commit()
+
+    logger.debug("Upserted %d data gap records", len(rows))
+    return len(rows)
+
+
+def delete_data_gap(
+    pool: ConnectionPool,
+    gap_type: str,
+    *,
+    target_timestamp: Optional[datetime] = _ANY,  # type: ignore[assignment]
+    instrument_id: Optional[int] = _ANY,  # type: ignore[assignment]
+    account_id: Optional[str] = _ANY,  # type: ignore[assignment]
+) -> int:
+    conditions = ["gap_type = %(gap_type)s"]
+    params: Dict[str, object] = {"gap_type": gap_type}
+
+    if target_timestamp is not _ANY:
+        if target_timestamp is None:
+            conditions.append("target_timestamp IS NULL")
+        else:
+            conditions.append("target_timestamp = %(target_timestamp)s")
+            params["target_timestamp"] = target_timestamp
+
+    if instrument_id is not _ANY:
+        if instrument_id is None:
+            conditions.append("instrument_id IS NULL")
+        else:
+            conditions.append("instrument_id = %(instrument_id)s")
+            params["instrument_id"] = instrument_id
+
+    if account_id is not _ANY:
+        if account_id is None:
+            conditions.append("account_id IS NULL")
+        else:
+            conditions.append("account_id = %(account_id)s")
+            params["account_id"] = account_id
+
+    where_clause = " AND ".join(conditions)
+    query = f"DELETE FROM data_gaps WHERE {where_clause}"
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            deleted = cur.rowcount
+        conn.commit()
+
+    if deleted:
+        logger.debug("Deleted %d data gap rows for type %s", deleted, gap_type)
+    return deleted
+
+
+def get_portfolio_snapshots_range(
+    pool: ConnectionPool,
+    account_id: str,
+    start_at: datetime,
+    end_at: datetime,
+) -> List[Dict[str, object]]:
+    query = """
+    SELECT snapshot_at,
+           nav_eur,
+           positions_value_eur,
+           cash_value_eur,
+           unrealized_pnl_eur,
+           realized_pnl_eur,
+           delta_eur,
+           ret,
+           drawdown
+    FROM portfolio_value_snapshot
+    WHERE account_id = %s
+      AND snapshot_at BETWEEN %s AND %s
+    ORDER BY snapshot_at ASC;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (account_id, start_at, end_at))
+            return cur.fetchall()
+
+
+def get_cash_movements_between(
+    pool: ConnectionPool,
+    account_id: str,
+    start_at: datetime,
+    end_at: datetime,
+) -> List[Dict[str, object]]:
+    query = """
+    SELECT movement_id,
+           date_time_utc,
+           currency,
+           amount,
+           movement_type,
+           description
+    FROM cash_movements
+    WHERE account_id = %s
+      AND date_time_utc > %s
+      AND date_time_utc <= %s
+    ORDER BY date_time_utc ASC;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (account_id, start_at, end_at))
+            return cur.fetchall()
+
+
+def get_positions_at_snapshot(
+    pool: ConnectionPool, account_id: str, snapshot_at: datetime
+) -> List[Dict[str, object]]:
+    query = """
+    SELECT instrument_id,
+           shares,
+           cost_basis_ccy,
+           cost_basis_eur
+    FROM positions_snapshot
+    WHERE account_id = %s
+      AND snapshot_at = %s
+    ORDER BY instrument_id;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (account_id, snapshot_at))
+            return cur.fetchall()
+
+
+def get_latest_positions_snapshot_time(pool: ConnectionPool, account_id: str) -> Optional[datetime]:
+    query = """
+    SELECT snapshot_at
+    FROM positions_snapshot
+    WHERE account_id = %s
+    ORDER BY snapshot_at DESC
+    LIMIT 1;
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (account_id,))
+            row = cur.fetchone()
+            return row["snapshot_at"] if row else None
+
+
 def replace_positions_snapshot(
-    pool: ConnectionPool, positions: Iterable[PositionSnapshot]
+    pool: ConnectionPool, snapshot_at: datetime, positions: Iterable[PositionSnapshot]
 ) -> None:
     positions = list(positions)
-    if not positions:
-        return
-
-    snapshot_at = positions[0].snapshot_at
 
     delete = "DELETE FROM positions_snapshot WHERE snapshot_at = %s"
     insert = sql.SQL(
@@ -741,7 +1197,7 @@ def replace_positions_snapshot(
 
     rows = [
         {
-            "snapshot_at": pos.snapshot_at,
+            "snapshot_at": snapshot_at,
             "account_id": pos.account_id,
             "instrument_id": pos.instrument_id,
             "shares": pos.shares,
@@ -754,37 +1210,60 @@ def replace_positions_snapshot(
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(delete, (snapshot_at,))
-            cur.executemany(insert, rows)
+            if rows:
+                cur.executemany(insert, rows)
         conn.commit()
 
 
 def replace_portfolio_value_snapshot(
-    pool: ConnectionPool, portfolios: Iterable[PortfolioValueSnapshot]
+    pool: ConnectionPool, snapshot_at: datetime, portfolios: Iterable[PortfolioValueSnapshot]
 ) -> None:
     portfolios = list(portfolios)
-    if not portfolios:
-        return
-
-    snapshot_at = portfolios[0].snapshot_at
 
     delete = "DELETE FROM portfolio_value_snapshot WHERE snapshot_at = %s"
     insert = sql.SQL(
         """
         INSERT INTO portfolio_value_snapshot (
-            snapshot_at, account_id, value_eur, ret, drawdown
+            snapshot_at,
+            account_id,
+            positions_value_eur,
+            cash_value_eur,
+            nav_eur,
+            unrealized_pnl_eur,
+            realized_pnl_eur,
+            delta_eur,
+            ret,
+            drawdown,
+            value_eur
         ) VALUES (
-            %(snapshot_at)s, %(account_id)s, %(value_eur)s, %(ret)s, %(drawdown)s
+            %(snapshot_at)s,
+            %(account_id)s,
+            %(positions_value_eur)s,
+            %(cash_value_eur)s,
+            %(nav_eur)s,
+            %(unrealized_pnl_eur)s,
+            %(realized_pnl_eur)s,
+            %(delta_eur)s,
+            %(ret)s,
+            %(drawdown)s,
+            %(value_eur)s
         );
         """
     )
 
     rows = [
         {
-            "snapshot_at": pv.snapshot_at,
+            "snapshot_at": snapshot_at,
             "account_id": pv.account_id,
-            "value_eur": pv.value_eur,
+            "positions_value_eur": pv.positions_value_eur,
+            "cash_value_eur": pv.cash_value_eur,
+            "nav_eur": pv.nav_eur,
+            "unrealized_pnl_eur": pv.unrealized_pnl_eur,
+            "realized_pnl_eur": pv.realized_pnl_eur,
+            "delta_eur": pv.delta_eur,
             "ret": pv.ret,
             "drawdown": pv.drawdown,
+            "value_eur": pv.nav_eur,
         }
         for pv in portfolios
     ]
@@ -792,7 +1271,72 @@ def replace_portfolio_value_snapshot(
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(delete, (snapshot_at,))
-            cur.executemany(insert, rows)
+            if rows:
+                cur.executemany(insert, rows)
+        conn.commit()
+
+
+def replace_realized_pnl_fifo(
+    pool: ConnectionPool, snapshot_at: datetime, lots: Iterable[RealizedPnlLot]
+) -> None:
+    lots = list(lots)
+
+    delete = "DELETE FROM realized_pnl_fifo WHERE close_snapshot_at = %s"
+    insert = sql.SQL(
+        """
+        INSERT INTO realized_pnl_fifo (
+            account_id,
+            instrument_id,
+            lot_opened_at,
+            lot_closed_at,
+            close_snapshot_at,
+            qty_closed,
+            proceeds_ccy,
+            proceeds_eur,
+            cost_ccy,
+            cost_eur,
+            pnl_ccy,
+            pnl_eur
+        ) VALUES (
+            %(account_id)s,
+            %(instrument_id)s,
+            %(lot_opened_at)s,
+            %(lot_closed_at)s,
+            %(close_snapshot_at)s,
+            %(qty_closed)s,
+            %(proceeds_ccy)s,
+            %(proceeds_eur)s,
+            %(cost_ccy)s,
+            %(cost_eur)s,
+            %(pnl_ccy)s,
+            %(pnl_eur)s
+        );
+        """
+    )
+
+    rows = [
+        {
+            "account_id": lot.account_id,
+            "instrument_id": lot.instrument_id,
+            "lot_opened_at": lot.lot_opened_at,
+            "lot_closed_at": lot.lot_closed_at,
+            "close_snapshot_at": lot.close_snapshot_at,
+            "qty_closed": lot.qty_closed,
+            "proceeds_ccy": lot.proceeds_ccy,
+            "proceeds_eur": lot.proceeds_eur,
+            "cost_ccy": lot.cost_ccy,
+            "cost_eur": lot.cost_eur,
+            "pnl_ccy": lot.pnl_ccy,
+            "pnl_eur": lot.pnl_eur,
+        }
+        for lot in lots
+    ]
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(delete, (snapshot_at,))
+            if rows:
+                cur.executemany(insert, rows)
         conn.commit()
 
 
@@ -806,20 +1350,26 @@ def get_portfolio_history_summary(
     WITH latest AS (
         SELECT DISTINCT ON (account_id)
             account_id,
-            value_eur,
+            COALESCE(nav_eur, value_eur) AS prev_nav,
+            realized_pnl_eur AS prev_realized,
+            cash_value_eur AS prev_cash,
+            positions_value_eur AS prev_positions,
             snapshot_at
         FROM portfolio_value_snapshot
         WHERE account_id = ANY(%s) AND snapshot_at < %s
         ORDER BY account_id, snapshot_at DESC
     ),
     peaks AS (
-        SELECT account_id, MAX(value_eur) AS max_value
+        SELECT account_id, MAX(COALESCE(nav_eur, value_eur)) AS max_value
         FROM portfolio_value_snapshot
         WHERE account_id = ANY(%s) AND snapshot_at < %s
         GROUP BY account_id
     )
     SELECT l.account_id,
-           l.value_eur AS prev_value,
+           l.prev_nav,
+           l.prev_realized,
+           l.prev_cash,
+           l.prev_positions,
            p.max_value
     FROM latest l
     FULL OUTER JOIN peaks p ON p.account_id = l.account_id;
@@ -835,8 +1385,13 @@ def get_portfolio_history_summary(
         account_id = row.get("account_id")
         if account_id is None:
             continue
+        prev_nav = row.get("prev_nav")
         summary[account_id] = {
-            "prev_value": row.get("prev_value"),
+            "prev_nav": prev_nav,
+            "prev_value": prev_nav,
+            "prev_realized": row.get("prev_realized"),
+            "prev_cash": row.get("prev_cash"),
+            "prev_positions": row.get("prev_positions"),
             "max_value": row.get("max_value"),
         }
     return summary

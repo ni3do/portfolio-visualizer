@@ -80,7 +80,8 @@ All endpoints are prefixed with `/api` and return JSON unless noted.
 - CLI command `import-swissquote` parses timezone/delimiter variants, stores transactions/cash data, and triggers the snapshot pipeline.
 
 ### 2.3 Market Data (yfinance)
-- Primary price source. Respect rate limits, cache responses, and allow ticker overrides via `instruments.yfinance_symbol`.
+- Primary price source. Respect rate limits, cache, and allow ticker overrides via `instruments.yfinance_symbol`.
+- Capture both daily (`1d`) and hourly (`60m`) candles for held instruments. Hourly bars backfill the trailing 30 days and roll forward for intraday PnL. Persist with source timestamp, close price, and currency; fall back to daily close when `60m` data is unavailable. Retain hourly data indefinitely for now and document storage monitoring in operations runbooks.
 
 ### 2.4 MCP Exposure
 - Provide read-only SQL access (`run_sql_query`) for debugging/analytics over HTTP (`Accept: application/json, text/event-stream`).
@@ -107,6 +108,7 @@ All endpoints are prefixed with `/api` and return JSON unless noted.
   - `instruments` (extend to log metadata completeness; missing ticker metadata is captured in `data_gaps`).
   - `transactions`, `cash_movements` (source-of-truth for FIFO cost basis and cash balances).
   - `prices`, `fx_rates` (FX now sourced exclusively from yfinance).
+  - `prices_hourly` (60-minute bars for intraday PnL; mirrors `prices` schema).
   - `positions_snapshot` (per-account, per-instrument shares/cost basis at snapshot timestamp).
   - `portfolio_value_snapshot` (per-account totals with required columns listed above; retain `ret`/`drawdown` if needed for historical Grafana parity).
 - Maintain indexes aligned with query patterns (e.g., `data_gaps(gap_type, target_timestamp)`, `realized_pnl_fifo(account_id, instrument_id, lot_closed_at)`).
@@ -170,6 +172,37 @@ All endpoints are prefixed with `/api` and return JSON unless noted.
 ### 4.7 Instrument Metadata Updater
 - Daily 03:30 CET job plus CLI.
 - Refreshes sector, region, exchange; persists to `instruments`.
+
+### 4.8 Performance & Returns
+- Track per-instrument and per-account cash flows:
+  - Trades contribute signed cash movements (already loaded via `transactions.net_amount`).
+  - External cash movements (`cash_movements`) classify deposits/withdrawals, fees, interest.
+  - Store normalized cash-flow records in base currency alongside the originating currency for audit.
+- Maintain realized/unrealized PnL:
+  - `realized_pnl_fifo` continues to capture lot closures (cost/proceeds in both native and EUR).
+  - Snapshots compute unrealized PnL from mark-to-market minus remaining lot cost.
+- Return calculations (all in base currency unless stated):
+  - **Simple Return (positions)**: `(value_eur - cost_eur) / cost_eur` using open-lot cost and latest mark-to-market.
+  - **Holdings Change**: per-snapshot delta for each instrument (`value_eur - prior_value_eur`) and percent change vs. prior snapshot to power intraday charts.
+  - **Portfolio Absolute Change**: `nav_eur - prior_nav_eur`.
+  - **Portfolio Percent Change**: `(nav_eur / prior_nav_eur) - 1` (skip when denominator is zero or missing).
+  - **Time-Weighted Return (TWR)**:
+    - Identify sub-periods between external cash flows.
+    - For each sub-period, compute `(ending_nav - net_contributions) / starting_nav - 1`.
+    - Chain (1 + sub-period return) across the requested horizon; expose daily, MTD, YTD, and since-inception values.
+  - **Money-Weighted Return (MWR / IRR)**:
+    - Use all cash flows (transactions + external) and ending NAV.
+    - Solve via Newton-Raphson or bisection nightly; store annualized and non-annualized figures for dashboards and MCP.
+  - **Cumulative Realized PnL**: sum of `realized_pnl_fifo.pnl_eur`, both life-to-date and per-period (day/week/month).
+  - **Contribution / Withdrawal Summary**: maintain running totals of deposits, withdrawals, fees, dividends for reporting and to reconcile returns.
+- Persist aggregated return metrics per snapshot for NAV and per-instrument snapshots for positions (e.g., percentage change since prior snapshot, since start-of-day, and cumulative since inception).
+- Grafana dashboards expose:
+  1. Per-position PnL (realized/unrealized) and percentage returns.
+  2. Portfolio NAV with absolute/percentage change, rolling TWR, and drawdown.
+  3. Cash-flow table summarising contributions, withdrawals, fees, and dividends.
+- MCP and CLI provide query endpoints (e.g., `pnl-report`, `returns-report`) summarising realized lots, open PnL, and return metrics over arbitrary periods. CLI includes:
+  - `returns-report` for on-demand TWR, MWR/IRR, simple returns, and contribution breakdowns over custom date ranges/accounts (CSV and table output).
+  - `position-pnl` for instrument-level unrealized/realized PnL and hourly return series.
 
 ## 5. Monitoring & Dashboards
 ### 5.1 Angular Visualisations (Target State)

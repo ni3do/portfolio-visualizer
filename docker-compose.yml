@@ -85,6 +85,35 @@ services:
       - ibkr_flex_token
       - ibkr_flex_query_id
 
+  mcp:
+    build:
+      context: ./etl
+    image: portfolio-etl:latest
+    container_name: pv_mcp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORTFOLIO_DB_HOST: postgres
+      PORTFOLIO_DB_PORT: "5432"
+      PORTFOLIO_DB_NAME: portfolio
+      PORTFOLIO_DB_USER_FILE: /run/secrets/postgres_app_user
+      PORTFOLIO_DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+      MCP_LOG_LEVEL: INFO
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+    entrypoint:
+      - python
+      - -m
+      - app.mcp_server
+    secrets:
+      - postgres_app_user
+      - postgres_app_password
+    ports:
+      - "8800:8000"
+
 volumes:
   pg_data:
   grafana_data:

@@ -34,7 +34,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, SUM(value_eur) AS portfolio_value_eur FROM portfolio_value_snapshot GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, SUM(nav_eur)::double precision AS portfolio_nav_eur FROM portfolio_value_snapshot WHERE $__timeFilter(snapshot_at) GROUP BY 1 ORDER BY 1;"
         }
       ],
       "fieldConfig": {
@@ -88,7 +88,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - ps.cost_basis_eur\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE (ps.shares * lp.close * fx.rate) - ps.cost_basis_eur\n        END AS unrealized_pnl_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT symbol || COALESCE(' – ' || name, '') AS label, SUM(unrealized_pnl_base)::double precision AS value\nFROM position_values\nWHERE unrealized_pnl_base IS NOT NULL\nGROUP BY symbol, name\nORDER BY value DESC;"
+          "rawSql": "WITH base_currency AS (\n    SELECT COALESCE((SELECT to_ccy FROM fx_rates ORDER BY date_utc DESC LIMIT 1), 'EUR') AS code\n),\nlatest_snapshot AS (\n    SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot\n),\nlatest_prices AS (\n    SELECT DISTINCT ON (instrument_id) instrument_id, close, currency, as_of_utc\n    FROM prices\n    ORDER BY instrument_id, as_of_utc DESC\n),\nlatest_fx AS (\n    SELECT from_ccy, to_ccy, rate\n    FROM (\n        SELECT fr.*, ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn\n        FROM fx_rates fr\n    ) ranked\n    WHERE rn = 1\n),\nposition_values AS (\n    SELECT\n        ps.account_id,\n        ps.instrument_id,\n        ps.shares,\n        ps.cost_basis_eur,\n        i.symbol,\n        COALESCE(NULLIF(i.name, ''), i.symbol) AS name,\n        COALESCE(lp.currency, i.currency) AS instrument_ccy,\n        lp.close,\n        bc.code AS base_ccy,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE ps.shares * lp.close * fx.rate\n        END AS market_value_base,\n        CASE\n            WHEN lp.close IS NULL THEN NULL\n            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - ps.cost_basis_eur\n            WHEN fx.rate IS NULL THEN NULL\n            ELSE (ps.shares * lp.close * fx.rate) - ps.cost_basis_eur\n        END AS unrealized_pnl_base\n    FROM positions_snapshot ps\n    JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at\n    JOIN instruments i ON i.instrument_id = ps.instrument_id\n    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id\n    CROSS JOIN base_currency bc\n    LEFT JOIN latest_fx fx\n      ON fx.from_ccy = COALESCE(lp.currency, i.currency)\n     AND fx.to_ccy = bc.code\n    WHERE ps.shares <> 0\n)\nSELECT symbol || COALESCE(' \u2013 ' || name, '') AS label, SUM(unrealized_pnl_base)::double precision AS value\nFROM position_values\nWHERE unrealized_pnl_base IS NOT NULL\nGROUP BY symbol, name\nORDER BY value DESC;"
         }
       ],
       "fieldConfig": {
@@ -451,6 +451,165 @@
         }
       },
       "pluginVersion": "9.5.0"
+    },
+    {
+      "title": "Realized vs Unrealized PnL",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT snapshot_at AS time, SUM(unrealized_pnl_eur)::double precision AS value, 'Unrealized' AS metric\\nFROM portfolio_value_snapshot\\nWHERE $__timeFilter(snapshot_at)\\nGROUP BY snapshot_at\\nUNION ALL\\nSELECT snapshot_at AS time, SUM(realized_pnl_eur)::double precision AS value, 'Realized' AS metric\\nFROM portfolio_value_snapshot\\nWHERE $__timeFilter(snapshot_at)\\nGROUP BY snapshot_at\\nORDER BY time, metric;",
+          "metricColumn": "metric"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "9.5.0",
+      "id": 8
+    },
+    {
+      "title": "Account PnL Summary",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest AS (SELECT MAX(snapshot_at) AS snapshot_at FROM portfolio_value_snapshot)\\nSELECT account_id,\\n       nav_eur::double precision AS nav_eur,\\n       delta_eur::double precision AS delta_eur,\\n       (COALESCE(ret, 0) * 100)::double precision AS return_pct,\\n       realized_pnl_eur::double precision AS realized_pnl,\\n       unrealized_pnl_eur::double precision AS unrealized_pnl\\nFROM portfolio_value_snapshot p\\nJOIN latest l ON p.snapshot_at = l.snapshot_at\\nORDER BY nav_eur DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "right"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "account_id"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "return_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "pluginVersion": "9.5.0",
+      "id": 9
+    },
+    {
+      "title": "Cash Flow Summary (30d)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "portfolio-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT account_id,\\n       SUM(CASE WHEN amount >= 0 THEN amount ELSE 0 END)::double precision AS contributions,\\n       SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)::double precision AS withdrawals\\nFROM cash_movements\\nWHERE date_time_utc >= NOW() - INTERVAL '30 days'\\nGROUP BY account_id\\nORDER BY account_id;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "right"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "account_id"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "pluginVersion": "9.5.0",
+      "id": 10
     }
   ],
   "templating": {

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import yfinance as yf
 
 from . import db
-from .models import InstrumentMetadataTarget
+from .models import DataGap, InstrumentMetadataTarget
 from .utils import clear_yfinance_cache
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,11 @@ class InstrumentMetadataUpdater:
 
         updated = 0
         failed = 0
+        gaps: list[DataGap] = []
+        cleared_ids: set[int] = set()
 
         for target in targets:
+            gap_timestamp = datetime.now(timezone.utc).replace(second=0, microsecond=0)
             metadata = self._fetch_from_yfinance(target)
             if metadata:
                 try:
@@ -48,6 +52,7 @@ class InstrumentMetadataUpdater:
                         self.pool, target.instrument_id, metadata
                     )
                     updated += 1
+                    cleared_ids.add(target.instrument_id)
                 except Exception:  # pylint: disable=broad-except
                     failed += 1
                     logger.exception(
@@ -55,12 +60,41 @@ class InstrumentMetadataUpdater:
                         target.instrument_id,
                         target.ticker,
                     )
+                    gaps.append(
+                        DataGap(
+                            gap_type="instrument_metadata",
+                            target_timestamp=gap_timestamp,
+                            instrument_id=target.instrument_id,
+                            account_id=None,
+                            details={"ticker": target.ticker, "reason": "persist_failed"},
+                            detected_at=gap_timestamp,
+                        )
+                    )
             else:
                 failed += 1
+                gaps.append(
+                    DataGap(
+                        gap_type="instrument_metadata",
+                        target_timestamp=gap_timestamp,
+                        instrument_id=target.instrument_id,
+                        account_id=None,
+                        details={"ticker": target.ticker, "reason": "missing_metadata"},
+                        detected_at=gap_timestamp,
+                    )
+                )
 
             sleep_seconds = getattr(self.settings, "sleep_seconds", 0.0)
             if sleep_seconds:
                 time.sleep(sleep_seconds)
+
+        if gaps:
+            db.upsert_data_gaps(self.pool, gaps)
+        for instrument_id in cleared_ids:
+            db.delete_data_gap(
+                self.pool,
+                "instrument_metadata",
+                instrument_id=instrument_id,
+            )
 
         logger.info(
             "Instrument metadata refresh completed (%d updated, %d skipped, total=%d)",
