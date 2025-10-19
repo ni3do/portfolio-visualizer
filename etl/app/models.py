@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,15 @@ class Price:
 
 
 @dataclass(frozen=True)
+class HourlyPrice:
+    instrument_id: int
+    as_of_utc: datetime
+    close: Decimal
+    currency: str
+    source: str
+
+
+@dataclass(frozen=True)
 class PositionSnapshot:
     snapshot_at: datetime
     account_id: str
@@ -86,9 +95,15 @@ class PositionSnapshot:
 class PortfolioValueSnapshot:
     snapshot_at: datetime
     account_id: str
-    value_eur: Decimal
-    ret: Optional[Decimal]
-    drawdown: Optional[Decimal]
+    positions_value_eur: Optional[Decimal] = None
+    cash_value_eur: Optional[Decimal] = None
+    nav_eur: Optional[Decimal] = None
+    unrealized_pnl_eur: Optional[Decimal] = None
+    realized_pnl_eur: Optional[Decimal] = None
+    delta_eur: Optional[Decimal] = None
+    ret: Optional[Decimal] = None
+    drawdown: Optional[Decimal] = None
+    created_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -104,3 +119,30 @@ class PositionTicker:
 class InstrumentMetadataTarget:
     instrument_id: int
     ticker: str
+
+
+@dataclass(frozen=True)
+class RealizedPnlLot:
+    account_id: str
+    instrument_id: int
+    lot_opened_at: datetime
+    lot_closed_at: datetime
+    close_snapshot_at: datetime
+    qty_closed: Decimal
+    proceeds_ccy: Decimal
+    proceeds_eur: Decimal
+    cost_ccy: Decimal
+    cost_eur: Decimal
+    pnl_ccy: Decimal
+    pnl_eur: Decimal
+    created_at: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class DataGap:
+    gap_type: str
+    target_timestamp: datetime
+    detected_at: Optional[datetime]
+    instrument_id: Optional[int]
+    account_id: Optional[str]
+    details: Optional[Dict[str, object]]

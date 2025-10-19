@@ -80,14 +80,18 @@ class AppConfig:
     instrument: InstrumentMetadataSettings
 
 
-def load_config() -> AppConfig:
-    db = DatabaseConfig(
+def load_db_config() -> DatabaseConfig:
+    return DatabaseConfig(
         host=os.getenv("PORTFOLIO_DB_HOST", "postgres"),
         port=int(os.getenv("PORTFOLIO_DB_PORT", "5432")),
         name=os.getenv("PORTFOLIO_DB_NAME", "portfolio"),
         user=_resolve("PORTFOLIO_DB_USER"),
         password=_resolve("PORTFOLIO_DB_PASSWORD"),
     )
+
+
+def load_config() -> AppConfig:
+    db = load_db_config()
 
     archive_dir = Path(os.getenv("FLEX_ARCHIVE_DIR", "/data/flex_archive"))
     archive_dir.mkdir(parents=True, exist_ok=True)

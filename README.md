@@ -51,6 +51,12 @@ docker compose down
 
 Use `docker compose down -v` to remove the persistent volumes (`pg_data`, `grafana_data`) if you want a clean slate.
 
+## MCP Server
+
+The repository ships with a Model Context Protocol server that exposes read-only access to the PostgreSQL database. Run it locally via `uv run portfolio-mcp` (stdio transport) or start the Docker service with `docker compose up -d mcp` for the streamable HTTP endpoint at `http://localhost:8800/mcp`. The tools currently implemented support listing tables and executing `SELECT`/`WITH` queries with automatic result truncation.
+
+Refer to `docs/wiki/mcp-server.md` for transport options, configuration knobs, and instructions on wiring the server into Codex CLI.
+
 ## Stage M1 – Flex Import
 
 1. Replace the placeholder contents in `secrets/ibkr_flex_token` and `secrets/ibkr_flex_query_id` with the values from the IBKR Flex Web Service (see guide below).

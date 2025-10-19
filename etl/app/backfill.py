@@ -7,7 +7,7 @@ import yfinance as yf
 
 from . import db
 from .config import SnapshotSettings
-from .models import FxRate, Price
+from .models import FxRate, HourlyPrice, Price
 from .utils import clear_yfinance_cache
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class BackfillService:
 
         if include_prices:
             self._backfill_prices(start, end)
+            self._backfill_prices_hourly(start, end)
         if include_fx:
             self._backfill_fx(start, end)
         if include_snapshots:
@@ -48,6 +49,7 @@ class BackfillService:
             return
 
         batch: list[Price] = []
+        cleared_instruments: set[int] = set()
 
         for target in targets:
             ticker = target.ticker
@@ -86,7 +88,68 @@ class BackfillService:
             if batch:
                 db.upsert_prices(self.pool, batch)
                 logger.info("Backfilled %s price points for %s", len(batch), ticker)
+                cleared_instruments.add(target.instrument_id)
                 batch.clear()
+
+        for instrument_id in cleared_instruments:
+            db.delete_data_gap(self.pool, "price", instrument_id=instrument_id)
+
+    def _backfill_prices_hourly(self, start: datetime, end: datetime) -> None:
+        targets = db.get_all_price_targets(self.pool)
+        if not targets:
+            return
+
+        hourly_start = max(start, end - timedelta(days=30))
+        batch: list[HourlyPrice] = []
+        cleared_instruments: set[int] = set()
+
+        for target in targets:
+            ticker = target.ticker
+            try:
+                history = yf.Ticker(ticker).history(
+                    start=hourly_start.replace(tzinfo=None),
+                    end=end.replace(tzinfo=None),
+                    interval="60m",
+                    auto_adjust=False,
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.debug("yfinance hourly history error for %s: %s", ticker, exc)
+                continue
+
+            if history.empty:
+                continue
+
+            history = history.dropna(subset=["Close"])
+            if history.empty:
+                continue
+
+            currency = history.attrs.get("currency", None) or target.currency
+            for ts, row in history.iterrows():
+                dt = _to_utc_datetime(ts)
+                try:
+                    close = Decimal(str(row["Close"]))
+                except Exception:  # pylint: disable=broad-except
+                    continue
+                batch.append(
+                    HourlyPrice(
+                        instrument_id=target.instrument_id,
+                        as_of_utc=dt,
+                        close=close,
+                        currency=currency,
+                        source="yfinance",
+                    )
+                )
+
+            if batch:
+                db.upsert_prices_hourly(self.pool, batch)
+                logger.info(
+                    "Backfilled %s hourly price points for %s", len(batch), ticker
+                )
+                cleared_instruments.add(target.instrument_id)
+                batch.clear()
+
+        for instrument_id in cleared_instruments:
+            db.delete_data_gap(self.pool, "price", instrument_id=instrument_id)
 
     def _backfill_fx(self, start: datetime, end: datetime) -> None:
         base = self.snapshot_settings.base_currency
@@ -96,6 +159,8 @@ class BackfillService:
         if not currencies:
             logger.info("No non-base currencies found; skipping FX backfill")
             return
+
+        cleared_pairs: set[str] = set()
 
         for currency in currencies:
             rate_rows: list[FxRate] = []
@@ -134,6 +199,15 @@ class BackfillService:
             if rate_rows:
                 db.upsert_fx_rates(self.pool, rate_rows)
                 logger.info("Backfilled %s FX points for %s/%s", len(rate_rows), currency, base)
+                cleared_pairs.add(f"{currency}->{base}")
+
+        for pair in cleared_pairs:
+            db.delete_data_gap(
+                self.pool,
+                "fx_rate",
+                instrument_id=None,
+                account_id=pair,
+            )
 
     def _backfill_snapshots(self, start_ts: datetime, end_ts: datetime) -> None:
         from .snapshots import SnapshotRecalculator  # local import

@@ -9,7 +9,7 @@ from typing import Any, Tuple
 import yfinance as yf
 
 from . import db
-from .models import FxRate
+from .models import DataGap, FxRate
 from .utils import clear_yfinance_cache
 
 logger = logging.getLogger(__name__)
@@ -35,28 +35,54 @@ class FxUpdater:
             return
 
         fx_rates: list[FxRate] = []
-        errors = 0
+        missing: list[str] = []
 
         for currency in currencies:
             rate = self._fetch_rate(currency, base)
             if rate:
                 fx_rates.append(rate)
             else:
-                errors += 1
+                missing.append(currency)
             time.sleep(1)
 
         if fx_rates:
             db.upsert_fx_rates(self.pool, fx_rates)
             logger.info(
-                "FX update stored %d rates (errors=%d)", len(fx_rates), errors
+                "FX update stored %d rates (errors=%d)", len(fx_rates), len(missing)
             )
         else:
             logger.warning(
                 "No FX rates captured from yfinance for %d currencies", len(currencies)
             )
 
-        if errors:
-            logger.warning("Failed to fetch FX rates for %d currencies", errors)
+        if missing:
+            logger.warning("Failed to fetch FX rates for %d currencies", len(missing))
+
+        gap_timestamp = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+
+        if missing:
+            gaps = [
+                DataGap(
+                    gap_type="fx_rate",
+                    target_timestamp=gap_timestamp,
+                    instrument_id=None,
+                    account_id=f"{ccy}->{base}",
+                    details={"from_currency": ccy, "to_currency": base},
+                    detected_at=gap_timestamp,
+                )
+                for ccy in missing
+            ]
+            db.upsert_data_gaps(self.pool, gaps)
+
+        if fx_rates:
+            succeeded = {rate.from_ccy for rate in fx_rates}
+            for currency in succeeded:
+                db.delete_data_gap(
+                    self.pool,
+                    "fx_rate",
+                    instrument_id=None,
+                    account_id=f"{currency}->{base}",
+                )
 
     def _fetch_rate(self, currency: str, base: str) -> FxRate | None:
         history, invert = self._fetch_history_pair(base, currency)
