@@ -160,6 +160,10 @@ class InstrumentMetadataUpdater:
         if sector:
             metadata["sector"] = sector
 
+        industry = clean(info.get("industry"))
+        if industry:
+            metadata["industry"] = industry
+
         country = clean(info.get("country"))
         if country:
             metadata["country"] = country

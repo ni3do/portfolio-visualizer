@@ -38,6 +38,7 @@ ALLOWED_METADATA_COLUMNS = {
     "currency",
     "asset_class",
     "sector",
+    "industry",
     "country",
     "region",
     "primary_exchange",
@@ -98,11 +99,16 @@ SCHEMA_STATEMENTS = [
         currency TEXT NOT NULL,
         asset_class TEXT,
         sector TEXT,
+        industry TEXT,
         country TEXT,
         region TEXT,
         primary_exchange TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    """,
+    """
+    ALTER TABLE instruments
+        ADD COLUMN IF NOT EXISTS industry TEXT;
     """,
     """
     CREATE TABLE IF NOT EXISTS transactions (
@@ -323,10 +329,10 @@ def upsert_instruments(pool: ConnectionPool, instruments: Iterable[Instrument]) 
         """
         INSERT INTO instruments (
             instrument_id, symbol, yfinance_symbol, name, currency,
-            asset_class, sector, country, region, primary_exchange
+            asset_class, sector, industry, country, region, primary_exchange
         ) VALUES (
             %(instrument_id)s, %(symbol)s, %(yfinance_symbol)s, %(name)s, %(currency)s,
-            %(asset_class)s, %(sector)s, %(country)s, %(region)s, %(primary_exchange)s
+            %(asset_class)s, %(sector)s, %(industry)s, %(country)s, %(region)s, %(primary_exchange)s
         )
         ON CONFLICT (instrument_id) DO UPDATE SET
             symbol = EXCLUDED.symbol,
@@ -338,6 +344,7 @@ def upsert_instruments(pool: ConnectionPool, instruments: Iterable[Instrument]) 
             currency = EXCLUDED.currency,
             asset_class = EXCLUDED.asset_class,
             sector = COALESCE(EXCLUDED.sector, instruments.sector),
+            industry = COALESCE(EXCLUDED.industry, instruments.industry),
             country = COALESCE(EXCLUDED.country, instruments.country),
             region = COALESCE(EXCLUDED.region, instruments.region),
             primary_exchange = EXCLUDED.primary_exchange;
@@ -353,6 +360,7 @@ def upsert_instruments(pool: ConnectionPool, instruments: Iterable[Instrument]) 
             "currency": inst.currency,
             "asset_class": inst.asset_class,
             "sector": inst.sector,
+            "industry": inst.industry,
             "country": inst.country,
             "region": inst.region,
             "primary_exchange": inst.primary_exchange,
