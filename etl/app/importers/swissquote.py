@@ -131,6 +131,7 @@ class SwissquoteImporter:
                     asset_class=self._get_value(data, ["Asset Type", "Category"]),
                     primary_exchange=self._get_value(data, ["Exchange"]),
                     sector=None,
+                    industry=None,
                     country=self._get_value(data, ["Country", "Market"]),
                     region=None,
                 )

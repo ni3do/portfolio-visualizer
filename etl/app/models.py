@@ -14,6 +14,7 @@ class Instrument:
     asset_class: Optional[str]
     primary_exchange: Optional[str]
     sector: Optional[str] = None
+    industry: Optional[str] = None
     country: Optional[str] = None
     region: Optional[str] = None
 

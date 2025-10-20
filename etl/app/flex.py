@@ -309,6 +309,7 @@ def extract_instruments(trade_rows: Iterable[Dict[str, str]]) -> List[Instrument
             asset_class=asset_class,
             primary_exchange=primary_exchange,
             sector=None,
+            industry=None,
             country=row.get("issuercountrycode") or row.get("countrycode"),
             region=None,
         )
