@@ -46,6 +46,7 @@ class ApiSettings:
     db: DatabaseConfig
     auth: AuthConfig
     cors_origins: List[str]
+    base_currency: str
 
 
 @lru_cache(maxsize=1)
@@ -68,10 +69,12 @@ def load_settings() -> ApiSettings:
         "VISUALIZER_CORS_ORIGINS", "http://localhost:4200,http://localhost:8081"
     )
     cors_origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
+    base_currency = os.getenv("VISUALIZER_BASE_CURRENCY", "EUR").upper()
 
     return ApiSettings(
         log_level=log_level,
         db=db,
         auth=auth,
         cors_origins=cors_origins,
+        base_currency=base_currency,
     )

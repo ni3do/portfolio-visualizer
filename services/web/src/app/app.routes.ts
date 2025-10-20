@@ -25,6 +25,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'exposures',
+        loadComponent: () =>
+          import('./features/exposures/exposures.component').then(
+            (m) => m.ExposuresComponent
+          )
+      },
+      {
         path: 'trades',
         loadComponent: () =>
           import('./features/trades/trades.component').then(

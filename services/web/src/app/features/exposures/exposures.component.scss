@@ -1,0 +1,61 @@
+.card {
+  background: var(--color-card-bg);
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--color-card-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.card header {
+  margin-bottom: 1rem;
+}
+
+.exposures-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.chart {
+  height: 260px;
+}
+
+.plot {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.exposure-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  row-gap: 0.5rem;
+}
+
+.exposure-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.exposure-label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.exposure-value {
+  color: var(--color-muted);
+}
+
+.exposure-total {
+  margin-top: 1rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}

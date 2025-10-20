@@ -30,37 +30,91 @@
   </ng-container>
 </section>
 
-<section class="grid">
-  <div class="card" *ngIf="countryExposure$ | async as exposure">
-    <header><h3>Country Exposure</h3></header>
-    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
-    <div *ngIf="exposure.slices.length > 0" class="chart">
-      <canvas baseChart
-        [data]="toExposureChart(exposure)"
-        [options]="exposureChartOptions"
-        chartType="doughnut"></canvas>
+<section class="card" *ngIf="returnsPlots$ | async as returns">
+  <ng-container *ngIf="returns">
+    <header>
+      <h2>Portfolio Returns</h2>
+    </header>
+    <div class="returns-grid">
+      <div class="returns-tile">
+        <h3>Absolute Change</h3>
+        <plotly-plot
+          [data]="returns.absolute.data"
+          [layout]="returns.absolute.layout"
+          [config]="returns.absolute.config"
+          class="nav-plot__canvas"
+        ></plotly-plot>
+      </div>
+      <div class="returns-tile">
+        <h3>Percentage Return</h3>
+        <plotly-plot
+          [data]="returns.percent.data"
+          [layout]="returns.percent.layout"
+          [config]="returns.percent.config"
+          class="nav-plot__canvas"
+        ></plotly-plot>
+      </div>
     </div>
-  </div>
-  <div class="card" *ngIf="sectorExposure$ | async as exposure">
-    <header><h3>Sector Exposure</h3></header>
-    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
-    <div *ngIf="exposure.slices.length > 0" class="chart">
-      <canvas baseChart
-        [data]="toExposureChart(exposure)"
-        [options]="exposureChartOptions"
-        chartType="doughnut"></canvas>
-    </div>
-  </div>
-  <div class="card" *ngIf="currencyExposure$ | async as exposure">
-    <header><h3>Currency Exposure</h3></header>
-    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
-    <div *ngIf="exposure.slices.length > 0" class="chart">
-      <canvas baseChart
-        [data]="toExposureChart(exposure)"
-        [options]="exposureChartOptions"
-        chartType="doughnut"></canvas>
-    </div>
-  </div>
+  </ng-container>
+</section>
+
+<section class="card" *ngIf="dividends$ | async as dividends">
+  <header>
+    <h2>Dividend Income ({{ baseCurrency }})</h2>
+    <span class="card__meta">Total: {{ formatCurrency(dividends.totalAmountBase) }}</span>
+  </header>
+  <p *ngIf="dividends.entries.length === 0">No dividends recorded in the selected period.</p>
+  <table *ngIf="dividends.entries.length > 0">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Account</th>
+        <th>Description</th>
+        <th class="numeric">Amount</th>
+        <th class="numeric">Amount ({{ baseCurrency }})</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let dividend of dividends.entries">
+        <td>{{ dividend.paymentDate | date: 'mediumDate' }}</td>
+        <td>{{ dividend.accountId }}</td>
+        <td>{{ dividend.description }}</td>
+        <td class="numeric">
+          {{ dividend.amount | number: '1.2-2' }} {{ dividend.currency }}
+        </td>
+        <td class="numeric">{{ formatCurrency(dividend.amountBase) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" *ngIf="recentTrades$ | async as trades">
+  <header><h3>Recent Trades</h3></header>
+  <p *ngIf="trades.trades.length === 0">No trades recorded.</p>
+  <table *ngIf="trades.trades.length > 0">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Account</th>
+        <th>Symbol</th>
+        <th>Type</th>
+        <th class="numeric">Quantity</th>
+        <th class="numeric">Price</th>
+        <th class="numeric">Net Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let trade of trades.trades">
+        <td>{{ trade.executed_at | date: 'medium' }}</td>
+        <td>{{ trade.account_id }}</td>
+        <td>{{ trade.symbol }}</td>
+        <td>{{ trade.trade_type }}</td>
+        <td class="numeric">{{ trade.quantity | number: '1.2-2' }}</td>
+        <td class="numeric">{{ trade.price | number: '1.2-4' }} {{ trade.currency }}</td>
+        <td class="numeric">{{ trade.net_amount | number: '1.2-2' }} {{ trade.currency }}</td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 <section class="card" *ngIf="unrealized$ | async as unrealized">
@@ -70,8 +124,8 @@
     <thead>
       <tr>
         <th>Instrument</th>
-        <th>Market Value (EUR)</th>
-        <th>Unrealized PnL (EUR)</th>
+        <th>Market Value ({{ baseCurrency }})</th>
+        <th>Unrealized PnL ({{ baseCurrency }})</th>
       </tr>
     </thead>
     <tbody>
@@ -82,12 +136,12 @@
             {{ item.name }}
           </div>
         </td>
-        <td>{{ (item.market_value_eur ?? 0) | number: '1.2-2' }}</td>
+        <td>{{ formatCurrency(item.market_value_eur ?? 0) }}</td>
         <td
           [class.positive]="item.unrealized_pnl_eur >= 0"
           [class.negative]="item.unrealized_pnl_eur < 0"
         >
-          {{ item.unrealized_pnl_eur | number: '1.2-2' }}
+          {{ formatCurrency(item.unrealized_pnl_eur) }}
         </td>
       </tr>
     </tbody>

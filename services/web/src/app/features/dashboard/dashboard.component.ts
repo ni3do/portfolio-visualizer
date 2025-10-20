@@ -1,58 +1,78 @@
-import { CommonModule, AsyncPipe, DecimalPipe } from '@angular/common';
+import { CommonModule, AsyncPipe } from '@angular/common';
 import { Component, signal } from '@angular/core';
-import { NgChartsModule } from 'ng2-charts';
 import { PlotlyModule } from 'angular-plotly.js';
-import { BehaviorSubject, Observable, map, switchMap } from 'rxjs';
+import { BehaviorSubject, Observable, combineLatest, map, of, shareReplay, switchMap } from 'rxjs';
 import * as PlotlyJS from 'plotly.js-dist-min';
-import { ChartConfiguration, ChartOptions } from 'chart.js';
 
 import { PortfolioApiService } from '../../api/portfolio-api.service';
 import {
-  ExposureResponse,
+  DividendsResponse,
   PortfolioSeries,
+  ReturnsResponse,
+  TradesResponse,
   UnrealizedResponse
 } from '../../api/models';
+import { environment } from '../../../environments/environment';
+import { ThemeService, Theme } from '../../core/services/theme.service';
 
 PlotlyModule.plotlyjs = PlotlyJS;
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, AsyncPipe, DecimalPipe, NgChartsModule, PlotlyModule],
+  imports: [CommonModule, AsyncPipe, PlotlyModule],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss'
 })
 export class DashboardComponent {
   private readonly timeframe$ = new BehaviorSubject<Timeframe>('1M');
-
+  readonly baseCurrency = environment.baseCurrency;
+  private readonly currencyFormatter = new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: this.baseCurrency,
+    maximumFractionDigits: 2
+  });
   readonly navSeries$: Observable<PortfolioSeries> = this.timeframe$.pipe(
-    switchMap((timeframe) => this.portfolioApi.getNavSeries(this.buildNavParams(timeframe)))
+    switchMap((timeframe) =>
+      this.portfolioApi.getNavSeries(this.buildNavParams(timeframe)).pipe(shareReplay(1))
+    )
   );
-  readonly navData$ = this.navSeries$.pipe(
-    map((series) => ({ series, plot: this.toNavPlot(series) }))
+  readonly navData$ = combineLatest([
+    this.navSeries$,
+    this.themeService.theme$
+  ]).pipe(map(([series, theme]) => ({ series, plot: this.toNavPlot(series, theme) })));
+
+  readonly returnsPlots$ = this.timeframe$.pipe(
+    switchMap((timeframe) => {
+      const params = this.buildNavParams(timeframe);
+      const data$ = this.portfolioApi
+        .getReturnsSeries({ from: params.from, to: params.to, interval: params.interval })
+        .pipe(shareReplay(1));
+      return combineLatest([data$, this.themeService.theme$]).pipe(
+        map(([res, theme]) => this.toReturnsPlots(res, theme))
+      );
+    })
   );
-  readonly countryExposure$: Observable<ExposureResponse> = this.portfolioApi.getExposure('country');
-  readonly sectorExposure$: Observable<ExposureResponse> = this.portfolioApi.getExposure('sector');
-  readonly currencyExposure$: Observable<ExposureResponse> = this.portfolioApi.getExposure('currency');
+
+  readonly dividends$ = this.buildDividendRange().pipe(
+    switchMap(({ from, to }) => this.portfolioApi.getDividends({ from, to })),
+    map((response) => this.toDividendView(response))
+  );
+
+  readonly recentTrades$ = this.portfolioApi.getRecentTrades({ limit: 25 });
+
   readonly unrealized$: Observable<UnrealizedResponse> = this.portfolioApi.getUnrealized();
 
-  readonly exposureChartOptions: ChartOptions<'doughnut'> = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: { boxWidth: 14 }
-      }
-    }
-  };
-
-  constructor(private readonly portfolioApi: PortfolioApiService) {}
+  constructor(
+    private readonly portfolioApi: PortfolioApiService,
+    private readonly themeService: ThemeService
+  ) {}
 
   readonly timeframes: TimeframeOption[] = [
     { label: '1W', value: '1W' },
     { label: '1M', value: '1M' },
     { label: 'YTD', value: 'YTD' },
-    { label: '1Y', value: '1Y' },
+    { label: '1Y', value: '1Y' }
   ];
 
   readonly selectedTimeframe = signal<Timeframe>('1M');
@@ -65,7 +85,12 @@ export class DashboardComponent {
     this.timeframe$.next(value);
   }
 
-  toNavPlot(series: PortfolioSeries): NavPlot | null {
+  formatCurrency(value: number | null | undefined): string {
+    return this.currencyFormatter.format(value ?? 0);
+  }
+
+  private toNavPlot(series: PortfolioSeries, theme: Theme): NavPlot | null {
+    const colors = this.themeService.getColors(theme);
     const sorted = [...series.points].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
@@ -83,11 +108,11 @@ export class DashboardComponent {
           mode: 'lines',
           x: xValues,
           y: yValues,
-          line: { color: '#2563eb', width: 2 },
+          line: { color: colors.navLine, width: 2 },
           fill: 'tozeroy',
-          fillcolor: 'rgba(37, 99, 235, 0.15)',
-          hovertemplate: '%{x}<br>%{y:.2f} EUR<extra></extra>',
-        },
+          fillcolor: colors.navFill,
+          hovertemplate: '%{x}<br>%{y:.2f} ' + this.baseCurrency + '<extra></extra>'
+        }
       ],
       layout: {
         margin: { l: 55, r: 20, t: 10, b: 40 },
@@ -97,41 +122,125 @@ export class DashboardComponent {
         height: 280,
         xaxis: {
           type: 'date',
-          tickfont: { color: '#475569' },
-          gridcolor: 'rgba(71, 85, 105, 0.15)',
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid
         },
         yaxis: {
-          tickfont: { color: '#475569' },
-          gridcolor: 'rgba(71, 85, 105, 0.15)',
-          separatethousands: true,
-        },
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid,
+          separatethousands: true
+        }
       },
       config: {
         responsive: true,
-        displayModeBar: false,
-      },
+        displayModeBar: false
+      }
     };
   }
 
-  toExposureChart(exposure: ExposureResponse): ChartConfiguration<'doughnut'>['data'] {
-    const labels = exposure.slices.map((slice) => slice.label || 'Unassigned');
-    const data = exposure.slices.map((slice) => slice.value_eur);
-    return {
-      labels,
-      datasets: [
+  private toReturnsPlots(response: ReturnsResponse, theme: Theme): ReturnsPlots | null {
+    const colors = this.themeService.getColors(theme);
+    const sorted = [...response.points].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    if (!sorted.length) {
+      return null;
+    }
+
+    const timestamps = sorted.map((point) => point.timestamp);
+    const deltas = sorted.map((point) => point.delta);
+    const absoluteColors = deltas.map((value) => (value >= 0 ? colors.positive : colors.negative));
+    const percentValues = sorted.map((point) =>
+      typeof point.return_pct === 'number' ? point.return_pct * 100 : null
+    );
+
+    const absolute: NavPlot = {
+      data: [
         {
-          data,
-          backgroundColor: [
-            '#1d4ed8',
-            '#2563eb',
-            '#3b82f6',
-            '#60a5fa',
-            '#93c5fd',
-            '#bfdbfe'
-          ]
+          type: 'bar',
+          x: timestamps,
+          y: deltas,
+          marker: { color: absoluteColors },
+          hovertemplate: '%{x}<br>%{y:.2f} ' + this.baseCurrency + '<extra></extra>'
         }
-      ]
+      ],
+      layout: {
+        margin: { l: 55, r: 20, t: 10, b: 40 },
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        autosize: true,
+        height: 240,
+        xaxis: {
+          type: 'date',
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid
+        },
+        yaxis: {
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid,
+          separatethousands: true
+        }
+      },
+      config: { responsive: true, displayModeBar: false }
     };
+
+    const percent: NavPlot = {
+      data: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          x: timestamps,
+          y: percentValues,
+          line: { color: colors.percentLine, width: 2 },
+          hovertemplate: '%{x}<br>%{y:.2f}%<extra></extra>'
+        }
+      ],
+      layout: {
+        margin: { l: 55, r: 20, t: 10, b: 40 },
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        autosize: true,
+        height: 240,
+        xaxis: {
+          type: 'date',
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid
+        },
+        yaxis: {
+          tickfont: { color: colors.axis },
+          gridcolor: colors.grid,
+          separatethousands: false,
+          ticksuffix: '%'
+        }
+      },
+      config: { responsive: true, displayModeBar: false }
+    };
+
+    return { absolute, percent };
+  }
+
+  private toDividendView(response: DividendsResponse): DividendView {
+    const entries = response.dividends
+      .map((entry) => ({
+        paymentDate: new Date(entry.payment_date),
+        accountId: entry.account_id,
+        amount: entry.amount,
+        amountBase: entry.amount_base,
+        currency: entry.currency,
+        description: entry.description || 'Dividend'
+      }))
+      .sort((a, b) => b.paymentDate.getTime() - a.paymentDate.getTime());
+
+    return {
+      entries,
+      totalAmountBase: response.total_amount_base
+    };
+  }
+
+  private buildDividendRange(): Observable<{ from: string; to: string }> {
+    const now = new Date();
+    const from = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    return of({ from: from.toISOString(), to: now.toISOString() });
   }
 
   private buildNavParams(timeframe: Timeframe): {
@@ -166,7 +275,7 @@ export class DashboardComponent {
     return {
       from: fromDate.toISOString(),
       to,
-      interval,
+      interval
     };
   }
 }
@@ -182,4 +291,23 @@ interface NavPlot {
   data: any[];
   layout: any;
   config: any;
+}
+
+interface ReturnsPlots {
+  absolute: NavPlot;
+  percent: NavPlot;
+}
+
+interface DividendRow {
+  paymentDate: Date;
+  accountId: string;
+  amount: number;
+  amountBase: number;
+  currency: string;
+  description: string;
+}
+
+interface DividendView {
+  entries: DividendRow[];
+  totalAmountBase: number;
 }

@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #f7f9fc;
-  color: #1f2933;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 .layout__header {
@@ -11,8 +11,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1.5rem;
-  background: #0d1b2a;
-  color: #fff;
+  background: var(--color-header-bg);
+  color: var(--color-header-text);
 }
 
 .layout__brand {
@@ -29,8 +29,15 @@
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  background: #1b263b;
+  background: var(--color-logo-bg);
+  color: var(--color-logo-text);
   font-weight: 700;
+}
+
+.layout__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .layout__nav {
@@ -39,25 +46,27 @@
 }
 
 .layout__nav a {
-  color: rgba(255, 255, 255, 0.85);
-  text-decoration: none;
+  color: var(--color-header-link);
   font-weight: 500;
+  padding-bottom: 0.25rem;
 }
 
 .layout__nav a.is-active {
-  color: #fff;
-  border-bottom: 2px solid #00b4d8;
+  color: var(--color-header-link-active);
+  border-bottom: 2px solid var(--color-button-active-bg);
 }
 
 .layout__content {
   display: flex;
   flex: 1;
   min-height: 0;
+  background: var(--color-bg);
 }
 
 .layout__sidebar {
   width: 220px;
-  background: #e1e8f0;
+  background: var(--color-sidebar-bg);
+  border-right: 1px solid var(--color-card-border);
   padding: 1.5rem 1rem;
   display: flex;
   flex-direction: column;
@@ -67,20 +76,38 @@
 .layout__sidebar a {
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
-  text-decoration: none;
-  color: inherit;
+  color: var(--color-text);
   font-weight: 500;
 }
 
 .layout__sidebar a.is-active {
-  background: #0d1b2a;
-  color: #fff;
+  background: var(--color-button-active-bg);
+  color: var(--color-button-active-text);
 }
 
 .layout__main {
   flex: 1;
   padding: 1.5rem;
   overflow: auto;
+}
+
+.theme-toggle {
+  border: 1px solid var(--color-card-border);
+  background: var(--color-button-bg);
+  color: var(--color-button-text);
+  border-radius: 999px;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--color-button-active-bg);
+  color: var(--color-button-active-text);
 }
 
 @media (max-width: 900px) {
@@ -93,5 +120,7 @@
     width: 100%;
     overflow-x: auto;
     gap: 0.5rem;
+    border-right: none;
+    border-bottom: 1px solid var(--color-card-border);
   }
 }

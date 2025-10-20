@@ -13,6 +13,7 @@ export class ShellService {
   readonly links: NavigationLink[] = [
     { path: '/dashboard', label: 'Dashboard', icon: 'insights' },
     { path: '/positions', label: 'Positions', icon: 'table_chart' },
+    { path: '/exposures', label: 'Exposures', icon: 'public' },
     { path: '/trades', label: 'Trades', icon: 'swap_horiz' },
     { path: '/settings', label: 'Settings', icon: 'settings' }
   ];

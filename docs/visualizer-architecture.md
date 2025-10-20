@@ -18,6 +18,7 @@
 - Compose services share an internal bridge network; expose FastAPI on `:8080`, Angular on `:8081` (`:4200` in dev), Grafana on `:3000`, MCP on `:8000`.
 - Secrets live under `/run/secrets/*` and are provisioned by `./scripts/create-dev-secrets.sh` or Make targets.
 - Required secrets: Postgres app credentials, JWT signing key, Grafana admin credentials (legacy), IBKR Flex token & query ID, optional OAuth/OIDC client config.
+- Configuration env: `VISUALIZER_BASE_CURRENCY` controls the base currency used for API conversions (default `EUR`).
 
 ### 1.3 Persistent Storage & Backups
 - Volumes: `pg_data`, `etl_data` (`/data/flex_archive`, price cache), `grafana_data`, and an `angular_dist` bind mount for local HMR if needed.
@@ -41,14 +42,19 @@ All endpoints are prefixed with `/api` and respond with JSON unless stated other
 | `/portfolio/exposure/country` | GET | Country allocation snapshot with EUR totals and weights. | Grafana panel 4 SQL. |
 | `/portfolio/exposure/sector` | GET | Sector allocation snapshot. | Grafana panel 5 SQL. |
 | `/portfolio/exposure/currency` | GET | Currency exposure snapshot. | Grafana panel 6 SQL. |
+| `/portfolio/exposure/region` | GET | Regional/continent exposure snapshot. | Aggregated `instruments.region` metadata. |
+| `/portfolio/exposure/industry` | GET | Industry/asset-class exposure snapshot. | Aggregated `instruments.asset_class` metadata. |
 | `/portfolio/positions` | GET | Paginated holdings table with sort and filter params. | Extended panel 7 SQL plus pagination helpers. |
+| `/portfolio/dividends` | GET | Dividend cash flows with base-currency conversion. | Aggregated `cash_movements` filtered on dividend descriptors. |
+| `/portfolio/returns` | GET | Portfolio return series (absolute & percentage). | Built off `portfolio_value_snapshot` deltas. |
 | `/transactions/recent` | GET | Recent trades (`limit`, default 25). | Grafana panel 3 SQL. |
 | `/metrics/cache` | GET | Cache hit/miss diagnostics (protected). | Optional ops-only endpoint. |
 
 ### 1.6 Frontend Modules & UX
 - Layout shell: Angular Material `mat-sidenav`, `mat-toolbar`, and responsive `mat-grid-list`.
-- Feature modules: `dashboard`, `positions`, `trades`, `auth`, `settings` with lazy-loaded routes.
-- Visualization: Prefer `ng2-charts` (Chart.js) or `ngx-charts` for time series, donut, and bar charts; tables use `MatTable` with virtual scrolling and filtering.
+- Feature modules: `dashboard`, `positions`, `trades`, `exposures`, `auth`, `settings` with lazy-loaded routes.
+- Visualization: Plotly powers NAV/return analytics and exposure pies, while `MatTable` covers tabular views; `/exposures` surfaces country/region/sector/industry/currency breakdowns.
+- Theme toggle: Catppuccin Mocha (default) and Latte palettes are available via the header switcher, with CSS variables driving charts and components.
 - State & caching: Centralize API calls in services using `HttpClient` + RxJS `shareReplay`; persist offline data through service worker data groups or IndexedDB helpers.
 - PWA: Enable `@angular/pwa` for service workers, install prompts, background sync, and stale-data banners.
 - Production nginx build proxies `/api/*` to the FastAPI service; dev profile uses CORS-enabled direct calls to `http://localhost:8080`.
@@ -130,7 +136,7 @@ All endpoints are prefixed with `/api` and respond with JSON unless stated other
 - Compute simple returns, holdings change, NAV deltas, TWR, MWR/IRR, cumulative realized PnL, and contribution/withdrawal summaries; persist metrics per snapshot and instrument for dashboards, MCP, and CLI reports.
 
 ## 5. Grafana Parity & Validation
-- Recreate Grafana panels as API endpoints and Angular components; map portfolio value, unrealized PnL, recent trades, country/sector/currency exposures, and open positions to the endpoints in §1.5.
+- Recreate Grafana panels as API endpoints and Angular components; map portfolio value, unrealized PnL, recent trades, country/region/sector/industry/currency exposures, dividends, and open positions to the endpoints in §1.5.
 - Capture the canonical SQL for legacy panels in `docs/spec.md` to ensure traceability between Grafana queries and API logic.
 - Maintain the missing-data dashboard with counts by `gap_type`, detailed table view, seven-day trend, and oldest gap age.
 - Operate Grafana under the `legacy` profile for side-by-side checks until the repository owner explicitly approves decommissioning.

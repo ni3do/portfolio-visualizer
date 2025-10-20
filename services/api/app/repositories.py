@@ -19,18 +19,33 @@ def fetch_portfolio_nav_series(
     params: Dict[str, object] = {"start": start, "end": end}
 
     sql = f"""
-        SELECT
-            date_trunc('{bucket}', snapshot_at) AS bucket,
-            SUM(nav_eur) AS nav_eur
-        FROM portfolio_value_snapshot
-        WHERE (%(start)s IS NULL OR snapshot_at >= %(start)s)
-          AND (%(end)s IS NULL OR snapshot_at <= %(end)s)
+        WITH ranked AS (
+            SELECT
+                account_id,
+                date_trunc('{bucket}', snapshot_at) AS bucket,
+                snapshot_at,
+                nav_eur,
+                ROW_NUMBER() OVER (
+                    PARTITION BY account_id, date_trunc('{bucket}', snapshot_at)
+                    ORDER BY snapshot_at DESC
+                ) AS rn
+            FROM portfolio_value_snapshot
+            WHERE (%(start)s IS NULL OR snapshot_at >= %(start)s)
+              AND (%(end)s IS NULL OR snapshot_at <= %(end)s)
     """
+
     if account_id:
         sql += " AND account_id = %(account_id)s\n"
         params["account_id"] = account_id
 
-    sql += "GROUP BY bucket ORDER BY bucket"
+    sql += """
+        )
+        SELECT bucket, SUM(nav_eur) AS nav_eur
+        FROM ranked
+        WHERE rn = 1
+        GROUP BY bucket
+        ORDER BY bucket
+    """
 
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -76,26 +91,28 @@ position_values AS (
         ps.account_id,
         ps.instrument_id,
         ps.shares,
-        ps.cost_basis_eur,
+        COALESCE(ps.cost_basis_eur, 0) AS cost_basis_eur,
         i.symbol,
         NULLIF(i.name, '') AS name,
         i.country,
         i.sector,
+        i.region,
+        i.asset_class,
         COALESCE(lp.currency, i.currency) AS instrument_ccy,
         lp.close AS last_price,
         lp.as_of_utc AS last_price_as_of,
         bc.code AS base_ccy,
         CASE
-            WHEN lp.close IS NULL THEN NULL
+            WHEN lp.close IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
             WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close
-            WHEN fx.rate IS NULL THEN NULL
+            WHEN fx.rate IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
             ELSE ps.shares * lp.close * fx.rate
         END AS market_value_eur,
         CASE
-            WHEN lp.close IS NULL THEN NULL
-            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - ps.cost_basis_eur
-            WHEN fx.rate IS NULL THEN NULL
-            ELSE (ps.shares * lp.close * fx.rate) - ps.cost_basis_eur
+            WHEN lp.close IS NULL THEN 0
+            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - COALESCE(ps.cost_basis_eur, 0)
+            WHEN fx.rate IS NULL THEN 0
+            ELSE (ps.shares * lp.close * fx.rate) - COALESCE(ps.cost_basis_eur, 0)
         END AS unrealized_pnl_eur
     FROM positions_snapshot ps
     JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
@@ -180,6 +197,8 @@ def fetch_exposure(
         "country": "COALESCE(position_values.country, 'Unassigned')",
         "sector": "COALESCE(position_values.sector, 'Unassigned')",
         "currency": "COALESCE(position_values.instrument_ccy, 'Unassigned')",
+        "region": "COALESCE(position_values.region, 'Unassigned')",
+        "industry": "COALESCE(position_values.asset_class, 'Unassigned')",
     }
     if dimension not in dimension_map:
         raise ValueError(f"Unsupported exposure dimension: {dimension}")
@@ -241,7 +260,7 @@ def fetch_recent_trades(
         SELECT
             t.date_time_utc AS executed_at,
             t.account_id,
-            i.symbol,
+            COALESCE(i.symbol, t.trade_id) AS symbol,
             t.type AS trade_type,
             t.qty,
             t.price,
@@ -249,7 +268,7 @@ def fetch_recent_trades(
             t.net_amount,
             t.fees
         FROM transactions t
-        JOIN instruments i ON i.instrument_id = t.instrument_id
+        LEFT JOIN instruments i ON i.instrument_id = t.instrument_id
     """
     if account_id:
         sql += "WHERE t.account_id = %(account_id)s\n"
@@ -258,6 +277,173 @@ def fetch_recent_trades(
         sql += "WHERE 1=1\n"
 
     sql += "ORDER BY t.date_time_utc DESC LIMIT %(limit)s"
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return rows
+
+
+def fetch_dividends(
+    conn: Connection,
+    *,
+    base_currency: str,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    account_id: Optional[str],
+) -> List[Dict[str, object]]:
+    params: Dict[str, object] = {
+        "start": start,
+        "end": end,
+        "base_currency": base_currency,
+    }
+
+    sql = """
+        WITH dividends AS (
+            SELECT
+                cm.movement_id,
+                cm.account_id,
+                cm.date_time_utc,
+                cm.currency,
+                cm.amount,
+                cm.description,
+                cm.movement_type
+            FROM cash_movements cm
+            WHERE (
+                    LOWER(cm.movement_type) LIKE '%%dividend%%'
+                 OR LOWER(COALESCE(cm.description, '')) LIKE '%%dividend%%'
+                )
+              AND (%(start)s IS NULL OR cm.date_time_utc >= %(start)s)
+              AND (%(end)s IS NULL OR cm.date_time_utc <= %(end)s)
+        )
+        SELECT
+            d.account_id,
+            d.date_time_utc,
+            d.currency,
+            d.amount,
+            d.description,
+            fx.rate AS fx_rate
+        FROM dividends d
+        LEFT JOIN LATERAL (
+            SELECT rate
+            FROM fx_rates
+            WHERE from_ccy = d.currency
+              AND to_ccy = %(base_currency)s
+              AND date_utc <= d.date_time_utc::date
+            ORDER BY date_utc DESC
+            LIMIT 1
+        ) fx ON TRUE
+    """
+
+    if account_id:
+        sql += " WHERE d.account_id = %(account_id)s"
+        params["account_id"] = account_id
+
+    sql += " ORDER BY d.date_time_utc DESC"
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return rows
+
+
+def fetch_returns_series(
+    conn: Connection,
+    *,
+    base_currency: str,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    interval: str,
+    account_id: Optional[str],
+) -> List[Dict[str, object]]:
+    bucket = {"1h": "hour", "1d": "day"}.get(interval, "day")
+    params: Dict[str, object] = {"start": start, "end": end, "base_currency": base_currency}
+
+    sql = f"""
+        WITH ranked AS (
+            SELECT
+                account_id,
+                date_trunc('{bucket}', snapshot_at) AS bucket,
+                snapshot_at,
+                nav_eur,
+                ROW_NUMBER() OVER (
+                    PARTITION BY account_id, date_trunc('{bucket}', snapshot_at)
+                    ORDER BY snapshot_at DESC
+                ) AS rn
+            FROM portfolio_value_snapshot
+            WHERE (%(start)s IS NULL OR snapshot_at >= %(start)s)
+              AND (%(end)s IS NULL OR snapshot_at <= %(end)s)
+    """
+
+    if account_id:
+        sql += " AND account_id = %(account_id)s\n"
+        params["account_id"] = account_id
+
+    sql += """
+        ),
+        snapshots AS (
+            SELECT
+                account_id,
+                bucket,
+                nav_eur,
+                LAG(nav_eur) OVER (PARTITION BY account_id ORDER BY bucket) AS prev_nav
+            FROM ranked
+            WHERE rn = 1
+        ),
+        contributions AS (
+            SELECT
+                cm.account_id,
+                date_trunc('{bucket}', cm.date_time_utc) AS bucket,
+                SUM(
+                    CASE
+                        WHEN cm.currency = %(base_currency)s THEN cm.amount
+                        ELSE cm.amount * fx.rate
+                    END
+                ) AS amount_base
+            FROM cash_movements cm
+            LEFT JOIN LATERAL (
+                SELECT rate
+                FROM fx_rates
+                WHERE from_ccy = cm.currency
+                  AND to_ccy = %(base_currency)s
+                  AND date_utc <= cm.date_time_utc::date
+                ORDER BY date_utc DESC
+                LIMIT 1
+            ) fx ON TRUE
+            WHERE (
+                LOWER(cm.movement_type) LIKE '%%deposit%%'
+                OR LOWER(cm.movement_type) LIKE '%%withdraw%%'
+                OR LOWER(cm.movement_type) LIKE '%%transfer%%'
+                OR LOWER(COALESCE(cm.description, '')) LIKE '%%deposit%%'
+                OR LOWER(COALESCE(cm.description, '')) LIKE '%%withdraw%%'
+                OR LOWER(COALESCE(cm.description, '')) LIKE '%%transfer%%'
+            )
+              AND (%(start)s IS NULL OR cm.date_time_utc >= %(start)s)
+              AND (%(end)s IS NULL OR cm.date_time_utc <= %(end)s)
+    """
+
+    if account_id:
+        sql += " AND cm.account_id = %(account_id)s\n"
+
+    sql += """
+            GROUP BY cm.account_id, date_trunc('{bucket}', cm.date_time_utc)
+        )
+        SELECT
+            s.bucket,
+            SUM(s.nav_eur) AS nav_eur,
+            SUM(s.nav_eur - COALESCE(s.prev_nav, s.nav_eur) - COALESCE(c.amount_base, 0)) AS delta_eur,
+            CASE
+                WHEN SUM(COALESCE(s.prev_nav, s.nav_eur) + COALESCE(c.amount_base, 0)) = 0 THEN NULL
+                ELSE SUM(s.nav_eur - COALESCE(s.prev_nav, s.nav_eur) - COALESCE(c.amount_base, 0))
+                     / SUM(COALESCE(s.prev_nav, s.nav_eur) + COALESCE(c.amount_base, 0))
+            END AS return_pct
+        FROM snapshots s
+        LEFT JOIN contributions c
+          ON c.account_id = s.account_id
+         AND c.bucket = s.bucket
+        GROUP BY s.bucket
+            ORDER BY s.bucket
+    """
 
     with conn.cursor() as cur:
         cur.execute(sql, params)

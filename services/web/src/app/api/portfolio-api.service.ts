@@ -7,6 +7,8 @@ import {
   ExposureResponse,
   PortfolioSeries,
   PositionsResponse,
+  DividendsResponse,
+  ReturnsResponse,
   TradesResponse,
   UnrealizedResponse
 } from './models';
@@ -37,7 +39,10 @@ export class PortfolioApiService {
     });
   }
 
-  getExposure(dimension: 'country' | 'sector' | 'currency', accountId?: string): Observable<ExposureResponse> {
+  getExposure(
+    dimension: 'country' | 'sector' | 'currency' | 'region' | 'industry',
+    accountId?: string
+  ): Observable<ExposureResponse> {
     const params = this.composeParams({ accountId });
     return this.http.get<ExposureResponse>(`${this.apiBase}/portfolio/exposure/${dimension}`, {
       params
@@ -54,6 +59,38 @@ export class PortfolioApiService {
   getRecentTrades(params?: { accountId?: string; limit?: number }): Observable<TradesResponse> {
     const query = this.composeParams({ accountId: params?.accountId, limit: params?.limit });
     return this.http.get<TradesResponse>(`${this.apiBase}/transactions/recent`, {
+      params: query
+    });
+  }
+
+  getDividends(params?: {
+    from?: string;
+    to?: string;
+    accountId?: string;
+  }): Observable<DividendsResponse> {
+    const query = this.composeParams({
+      from: params?.from,
+      to: params?.to,
+      accountId: params?.accountId
+    });
+    return this.http.get<DividendsResponse>(`${this.apiBase}/portfolio/dividends`, {
+      params: query
+    });
+  }
+
+  getReturnsSeries(params?: {
+    from?: string;
+    to?: string;
+    interval?: string;
+    accountId?: string;
+  }): Observable<ReturnsResponse> {
+    const query = this.composeParams({
+      from: params?.from,
+      to: params?.to,
+      interval: params?.interval,
+      accountId: params?.accountId
+    });
+    return this.http.get<ReturnsResponse>(`${this.apiBase}/portfolio/returns`, {
       params: query
     });
   }

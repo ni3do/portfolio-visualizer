@@ -1,0 +1,26 @@
+<section class="exposures-grid">
+  <div class="card" *ngFor="let section of sections">
+    <header><h2>{{ section.title }}</h2></header>
+    <ng-container *ngIf="section.stream | async as exposure">
+      <div class="chart">
+        <plotly-plot
+          [data]="exposure.plot.data"
+          [layout]="exposure.plot.layout"
+          [config]="exposure.plot.config"
+          class="plot"
+        ></plotly-plot>
+      </div>
+      <ul class="exposure-list">
+        <li *ngFor="let slice of exposure.rows">
+          <span class="exposure-label">{{ slice.label }}</span>
+          <span class="exposure-value">
+            {{ formatCurrency(slice.value) }} · {{ formatPercent(slice.percent) }}
+          </span>
+        </li>
+      </ul>
+      <footer class="exposure-total">
+        Total: {{ formatCurrency(exposure.total) }}
+      </footer>
+    </ng-container>
+  </div>
+</section>

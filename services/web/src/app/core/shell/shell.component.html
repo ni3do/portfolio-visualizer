@@ -4,11 +4,24 @@
       <span class="layout__logo">PV</span>
       <span class="layout__title">Portfolio Visualizer</span>
     </div>
-    <nav class="layout__nav">
-      <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
-        {{ link.label }}
-      </a>
-    </nav>
+    <div class="layout__actions">
+      <nav class="layout__nav">
+        <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
+          {{ link.label }}
+        </a>
+      </nav>
+      <ng-container *ngIf="theme$ | async as theme">
+        <button
+          type="button"
+          class="theme-toggle"
+          [attr.aria-label]="theme === 'mocha' ? 'Switch to light theme' : 'Switch to dark theme'"
+          (click)="toggleTheme()"
+        >
+          <span *ngIf="theme === 'mocha'">🌙</span>
+          <span *ngIf="theme === 'latte'">☀️</span>
+        </button>
+      </ng-container>
+    </div>
   </header>
   <div class="layout__content">
     <aside class="layout__sidebar">

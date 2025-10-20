@@ -220,6 +220,7 @@ The modern stack runs alongside the ETL to provide the new API and PWA experienc
    Then visit [http://localhost:4200](http://localhost:4200). The API runs on port 8080 with CORS enabled for local hosts.
 
 4. Credentials: username from `secrets/visualizer_basic_auth_user` (default `visualizer`), password from `secrets/visualizer_basic_auth_password`.
+5. The UI ships with Catppuccin dark/light themes (Mocha default, Latte optional) and a dedicated `/exposures` view for country/region/sector/industry/currency breakdowns.
 
 ### API & UI tests
 

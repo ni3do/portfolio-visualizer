@@ -105,6 +105,7 @@ services:
       VISUALIZER_BASIC_AUTH_USER_FILE: /run/secrets/visualizer_basic_auth_user
       VISUALIZER_BASIC_AUTH_PASSWORD_FILE: /run/secrets/visualizer_basic_auth_password
       VISUALIZER_LOG_LEVEL: INFO
+      VISUALIZER_BASE_CURRENCY: EUR
     ports:
       - "8080:8080"
     secrets:

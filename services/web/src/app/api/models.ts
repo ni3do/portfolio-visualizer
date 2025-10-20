@@ -63,3 +63,29 @@ export interface RecentTrade {
 export interface TradesResponse {
   trades: RecentTrade[];
 }
+
+export interface DividendEntry {
+  payment_date: string;
+  account_id: string;
+  amount: number;
+  amount_base: number;
+  currency: string;
+  description?: string;
+  fx_rate?: number;
+}
+
+export interface DividendsResponse {
+  dividends: DividendEntry[];
+  total_amount_base: number;
+}
+
+export interface ReturnPoint {
+  timestamp: string;
+  nav: number;
+  delta: number;
+  return_pct?: number;
+}
+
+export interface ReturnsResponse {
+  points: ReturnPoint[];
+}

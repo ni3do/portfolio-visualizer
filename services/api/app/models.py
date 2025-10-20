@@ -104,3 +104,29 @@ class UnrealizedItem(BaseModel):
 
 class UnrealizedResponse(BaseModel):
     items: List[UnrealizedItem]
+
+
+class DividendEntry(BaseModel):
+    payment_date: datetime
+    account_id: str
+    amount: float
+    amount_base: float
+    currency: str
+    description: Optional[str] = None
+    fx_rate: Optional[float] = None
+
+
+class DividendsResponse(BaseModel):
+    dividends: List[DividendEntry]
+    total_amount_base: float
+
+
+class ReturnPoint(BaseModel):
+    timestamp: datetime
+    nav: float
+    delta: float
+    return_pct: Optional[float]
+
+
+class ReturnsResponse(BaseModel):
+    points: List[ReturnPoint]

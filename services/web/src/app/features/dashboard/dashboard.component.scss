@@ -1,8 +1,10 @@
 .card {
-  background: #fff;
+  background: var(--color-card-bg);
+  color: var(--color-text);
   border-radius: 12px;
   padding: 1.5rem;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--color-card-border);
   margin-bottom: 1.5rem;
 }
 
@@ -19,9 +21,10 @@
   gap: 1rem;
 }
 
+
 .timeframe-toggle {
   display: inline-flex;
-  background: #e2e8f0;
+  background: var(--color-button-bg);
   border-radius: 999px;
   padding: 0.25rem;
   gap: 0.25rem;
@@ -33,24 +36,24 @@
   padding: 0.35rem 0.9rem;
   border-radius: 999px;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text);
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
 
 .timeframe-toggle button:hover {
-  background: rgba(37, 99, 235, 0.12);
-  color: #1e3a8a;
+  background: var(--color-button-hover-bg);
+  color: var(--color-button-active-text);
 }
 
 .timeframe-toggle button.active {
-  background: #2563eb;
-  color: #fff;
+  background: var(--color-button-active-bg);
+  color: var(--color-button-active-text);
 }
 
 .card__meta {
   font-size: 0.875rem;
-  color: #5f6a7d;
+  color: var(--color-muted);
 }
 
 .chart {
@@ -72,26 +75,20 @@
   height: 280px;
 }
 
-.grid {
+.returns-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1.5rem;
-  margin-bottom: 1.5rem;
 }
 
-.card ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  row-gap: 0.5rem;
+.returns-tile h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
 }
 
-.card ul li {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.95rem;
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 table {
@@ -106,26 +103,26 @@ td {
 }
 
 thead {
-  background: #edf2f7;
+  background: var(--color-table-header-bg);
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
-  color: #475569;
+  color: var(--color-text);
 }
 
 tbody tr:nth-child(even) {
-  background: rgba(237, 242, 247, 0.6);
+  background: var(--color-table-row-alt);
 }
 
 .subtle {
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 .positive {
-  color: #0f9d58;
+  color: var(--color-positive);
 }
 
 .negative {
-  color: #d93025;
+  color: var(--color-negative);
 }
