@@ -1,0 +1,23 @@
+<div class="layout">
+  <header class="layout__header">
+    <div class="layout__brand">
+      <span class="layout__logo">PV</span>
+      <span class="layout__title">Portfolio Visualizer</span>
+    </div>
+    <nav class="layout__nav">
+      <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
+        {{ link.label }}
+      </a>
+    </nav>
+  </header>
+  <div class="layout__content">
+    <aside class="layout__sidebar">
+      <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
+        {{ link.label }}
+      </a>
+    </aside>
+    <main class="layout__main">
+      <router-outlet />
+    </main>
+  </div>
+</div>

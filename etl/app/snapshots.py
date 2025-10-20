@@ -134,6 +134,7 @@ class SnapshotRecalculator:
 
         fx_resolver = FxResolver(self.pool, self.settings.base_currency)
 
+        missing_price_logged: set[int] = set()
         try:
             (
                 positions_state,
@@ -144,6 +145,7 @@ class SnapshotRecalculator:
             )
 
             instrument_ids = {instrument_id for (_, instrument_id) in positions_state.keys()}
+            instrument_meta = db.get_instruments_by_ids(self.pool, list(instrument_ids))
             price_map = (
                 db.get_latest_prices_with_hourly(self.pool, list(instrument_ids), cutoff_utc)
                 if instrument_ids
@@ -165,7 +167,7 @@ class SnapshotRecalculator:
                         details={"reason": "missing_price_snapshot"},
                     )
                 logger.warning("Missing price data for snapshot timestamp %s", target_ts)
-                return
+                price_map = {}
 
             for (account_id, instrument_id), state in positions_state.items():
                 shares: Decimal = state["shares"]
@@ -175,7 +177,16 @@ class SnapshotRecalculator:
 
                 price = price_map.get(instrument_id)
                 if not price:
-                    logger.warning("No price for instrument %s at %s", instrument_id, target_ts)
+                    if instrument_id not in missing_price_logged:
+                        meta = instrument_meta.get(instrument_id, {})
+                        symbol = meta.get("yfinance_symbol") or meta.get("symbol") or "?"
+                        logger.warning(
+                            "No price for instrument %s (%s) at %s",
+                            instrument_id,
+                            symbol,
+                            target_ts,
+                        )
+                        missing_price_logged.add(instrument_id)
                     gap_recorder.record_gap(
                         "price",
                         target_ts,
@@ -327,6 +338,8 @@ class SnapshotRecalculator:
         DefaultDict[str, Decimal],
     ]:
         state: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        insufficient_lot_logged: set[Tuple[str, int]] = set()
+        short_position_logged: set[Tuple[str, int]] = set()
         realized_entries: List[RealizedPnlLot] = []
         realized_totals: DefaultDict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
@@ -475,27 +488,54 @@ class SnapshotRecalculator:
                 entry["cost_eur"] -= cost_eur
 
             if remaining > 0:
-                logger.warning(
-                    "Sell quantity %s for instrument %s on account %s exceeded available lots",
-                    sell_qty,
-                    instrument_id,
-                    account_id,
-                )
+                key = (account_id, instrument_id)
+                if key not in insufficient_lot_logged:
+                    logger.warning(
+                        "Sell quantity %s for instrument %s on account %s exceeded available lots",
+                        sell_qty,
+                        instrument_id,
+                        account_id,
+                    )
+                    insufficient_lot_logged.add(key)
                 gap_recorder.record_gap(
-                    "instrument_metadata",
+                    "position_lot_shortage",
                     trade_dt,
                     instrument_id=instrument_id,
                     account_id=account_id,
-                    details={"reason": "insufficient_lot_history", "qty": str(remaining)},
+                    details={"qty_missing": str(remaining)},
+                )
+            else:
+                gap_recorder.clear_gap(
+                    "position_lot_shortage",
+                    trade_dt,
+                    instrument_id=instrument_id,
+                    account_id=account_id,
                 )
 
             entry["shares"] += qty  # qty is negative here
             if entry["shares"] < 0:
-                logger.warning(
-                    "Account %s instrument %s has short position %s shares",
-                    account_id,
-                    instrument_id,
-                    entry["shares"],
+                key = (account_id, instrument_id)
+                if key not in short_position_logged:
+                    logger.warning(
+                        "Account %s instrument %s has short position %s shares",
+                        account_id,
+                        instrument_id,
+                        entry["shares"],
+                    )
+                    short_position_logged.add(key)
+                gap_recorder.record_gap(
+                    "position_short",
+                    trade_dt,
+                    instrument_id=instrument_id,
+                    account_id=account_id,
+                    details={"shares": str(entry["shares"])},
+                )
+            else:
+                gap_recorder.clear_gap(
+                    "position_short",
+                    trade_dt,
+                    instrument_id=instrument_id,
+                    account_id=account_id,
                 )
 
         return state, realized_entries, realized_totals

@@ -75,5 +75,7 @@ write_secret "grafana_admin_user" "admin"
 write_secret "grafana_admin_password" "$(random_hex)"
 write_secret "ibkr_flex_token" "${IBKR_FLEX_TOKEN:-CHANGE_ME}"
 write_secret "ibkr_flex_query_id" "${IBKR_FLEX_QUERY_ID:-CHANGE_ME}"
+write_secret "visualizer_basic_auth_user" "visualizer"
+write_secret "visualizer_basic_auth_password" "$(random_hex)"
 
 echo "Secrets ready under $SECRETS_DIR"

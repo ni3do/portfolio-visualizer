@@ -47,6 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not run schema migrations before import",
     )
     flex_parser.add_argument("--backfill-days", type=int, default=365)
+    flex_parser.add_argument("--backfill-start-date")
+    flex_parser.add_argument("--backfill-end-date")
     flex_parser.add_argument("--no-backfill", action="store_true")
 
     import_ibkr_parser = sub.add_parser(
@@ -54,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_ibkr_parser.add_argument("--file", required=True)
     import_ibkr_parser.add_argument("--backfill-days", type=int, default=365)
+    import_ibkr_parser.add_argument("--backfill-start-date")
+    import_ibkr_parser.add_argument("--backfill-end-date")
     import_ibkr_parser.add_argument("--no-backfill", action="store_true")
 
     import_swissquote_parser = sub.add_parser(
@@ -63,6 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     import_swissquote_parser.add_argument("--delimiter", default=";")
     import_swissquote_parser.add_argument("--timezone", default="Europe/Zurich")
     import_swissquote_parser.add_argument("--backfill-days", type=int, default=365)
+    import_swissquote_parser.add_argument("--backfill-start-date")
+    import_swissquote_parser.add_argument("--backfill-end-date")
     import_swissquote_parser.add_argument("--no-backfill", action="store_true")
 
     sub.add_parser(
@@ -129,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
         "backfill", help="Backfill historical prices and FX rates"
     )
     backfill_parser.add_argument("--days", type=int, default=365)
+    backfill_parser.add_argument("--start-date")
+    backfill_parser.add_argument("--end-date")
     backfill_parser.add_argument("--prices-only", action="store_true")
     backfill_parser.add_argument("--fx-only", action="store_true")
     backfill_parser.add_argument("--snapshots", action="store_true")
@@ -221,13 +229,29 @@ def run_scheduler(config, pool) -> None:
     scheduler.start()
 
 
-def _run_backfill_after_import(pool, config, days: int) -> None:
-    logging.getLogger(__name__).info(
-        "Running backfill for the last %s days after import", days
-    )
+def _run_backfill_after_import(
+    pool,
+    config,
+    days: int | None = None,
+    *,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> None:
+    if start_date:
+        logging.getLogger(__name__).info(
+            "Running backfill from %s to %s after import",
+            start_date.date(),
+            (end_date.date() if end_date else "now"),
+        )
+    else:
+        logging.getLogger(__name__).info(
+            "Running backfill for the last %s days after import", days
+        )
     backfill = BackfillService(config.snapshot, pool)
     backfill.run(
-        days=days,
+        days=days if not start_date else None,
+        start=start_date,
+        end=end_date,
         include_prices=True,
         include_fx=True,
         include_snapshots=True,
@@ -241,6 +265,21 @@ def _parse_timestamp(raw: str) -> datetime:
     except Exception:  # pylint: disable=broad-except
         result = date_parser.parse(raw)
 
+    if result.tzinfo is None:
+        result = result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
+
+
+def _parse_optional_date(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    try:
+        result = date_parser.isoparse(raw)
+    except Exception:  # pylint: disable=broad-except
+        try:
+            result = date_parser.parse(raw)
+        except Exception as exc:  # pylint: disable=broad-except
+            raise ValueError(f"Could not parse date: {raw}") from exc
     if result.tzinfo is None:
         result = result.replace(tzinfo=timezone.utc)
     return result.astimezone(timezone.utc)
@@ -510,7 +549,20 @@ def main(argv: list[str] | None = None) -> int:
                 ensure_schema(pool)
             importer.run(pool)
             if not args.no_backfill:
-                _run_backfill_after_import(pool, config, args.backfill_days)
+                try:
+                    start_date = _parse_optional_date(args.backfill_start_date)
+                    end_date = _parse_optional_date(args.backfill_end_date)
+                except ValueError as exc:
+                    logging.getLogger(__name__).error(str(exc))
+                    return 1
+                days = None if start_date else args.backfill_days
+                _run_backfill_after_import(
+                    pool,
+                    config,
+                    days,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             return 0
 
         if args.command == "import-ibkr":
@@ -523,7 +575,20 @@ def main(argv: list[str] | None = None) -> int:
                 reference_code=Path(args.file).stem,
             )
             if not args.no_backfill:
-                _run_backfill_after_import(pool, config, args.backfill_days)
+                try:
+                    start_date = _parse_optional_date(args.backfill_start_date)
+                    end_date = _parse_optional_date(args.backfill_end_date)
+                except ValueError as exc:
+                    logging.getLogger(__name__).error(str(exc))
+                    return 1
+                days = None if start_date else args.backfill_days
+                _run_backfill_after_import(
+                    pool,
+                    config,
+                    days,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             return 0
 
         if args.command == "import-swissquote":
@@ -535,7 +600,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             importer.run(pool)
             if not args.no_backfill:
-                _run_backfill_after_import(pool, config, args.backfill_days)
+                try:
+                    start_date = _parse_optional_date(args.backfill_start_date)
+                    end_date = _parse_optional_date(args.backfill_end_date)
+                except ValueError as exc:
+                    logging.getLogger(__name__).error(str(exc))
+                    return 1
+                days = None if start_date else args.backfill_days
+                _run_backfill_after_import(
+                    pool,
+                    config,
+                    days,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             return 0
 
         if args.command == "price-update":
@@ -619,8 +697,17 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "backfill":
             ensure_schema(pool)
+            try:
+                start_date = _parse_optional_date(args.start_date)
+                end_date = _parse_optional_date(args.end_date)
+            except ValueError as exc:
+                logging.getLogger(__name__).error(str(exc))
+                return 1
+            days = args.days if start_date is None else None
             BackfillService(config.snapshot, pool).run(
-                days=args.days,
+                days=days,
+                start=start_date,
+                end=end_date,
                 include_prices=not args.fx_only,
                 include_fx=not args.prices_only,
                 include_snapshots=args.snapshots,

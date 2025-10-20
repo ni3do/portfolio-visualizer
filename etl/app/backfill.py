@@ -21,7 +21,10 @@ class BackfillService:
 
     def run(
         self,
-        days: int,
+        *,
+        days: int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
         include_prices: bool = True,
         include_fx: bool = True,
         include_snapshots: bool = False,
@@ -31,16 +34,28 @@ class BackfillService:
 
         clear_yfinance_cache()
 
-        end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        start = (end - timedelta(days=days)).replace(minute=0, second=0, microsecond=0)
+        end_utc = (
+            end.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+            if end
+            else datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        )
+        if start is not None:
+            start_utc = start.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        elif days is not None:
+            start_utc = (end_utc - timedelta(days=days)).replace(minute=0, second=0, microsecond=0)
+        else:
+            raise ValueError("Either days or start must be provided for backfill")
+
+        if start_utc > end_utc:
+            start_utc, end_utc = end_utc, start_utc
 
         if include_prices:
-            self._backfill_prices(start, end)
-            self._backfill_prices_hourly(start, end)
+            self._backfill_prices(start_utc, end_utc)
+            self._backfill_prices_hourly(start_utc, end_utc)
         if include_fx:
-            self._backfill_fx(start, end)
+            self._backfill_fx(start_utc, end_utc)
         if include_snapshots:
-            self._backfill_snapshots(start, end)
+            self._backfill_snapshots(start_utc, end_utc)
 
     def _backfill_prices(self, start: datetime, end: datetime) -> None:
         targets = db.get_all_price_targets(self.pool)

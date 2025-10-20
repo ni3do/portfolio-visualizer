@@ -1,0 +1,95 @@
+<section class="card" *ngIf="navData$ | async as navData">
+  <ng-container *ngIf="navData.series as nav">
+    <header>
+      <div class="nav-header">
+        <h2>Portfolio NAV</h2>
+        <div class="timeframe-toggle" role="group" aria-label="Time horizon">
+          <button
+            type="button"
+            *ngFor="let option of timeframes"
+            [class.active]="selectedTimeframe() === option.value"
+            (click)="onSelectTimeframe(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+      <span *ngIf="nav.points.length > 0" class="card__meta">
+        Last update: {{ nav.points[nav.points.length - 1].timestamp | date: 'medium' }}
+      </span>
+    </header>
+    <p *ngIf="nav.points.length === 0">No NAV data available yet.</p>
+    <div *ngIf="nav.points.length > 0 && navData.plot" class="chart nav-plot">
+      <plotly-plot
+        [data]="navData.plot.data"
+        [layout]="navData.plot.layout"
+        [config]="navData.plot.config"
+        class="nav-plot__canvas"
+      ></plotly-plot>
+    </div>
+  </ng-container>
+</section>
+
+<section class="grid">
+  <div class="card" *ngIf="countryExposure$ | async as exposure">
+    <header><h3>Country Exposure</h3></header>
+    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
+    <div *ngIf="exposure.slices.length > 0" class="chart">
+      <canvas baseChart
+        [data]="toExposureChart(exposure)"
+        [options]="exposureChartOptions"
+        chartType="doughnut"></canvas>
+    </div>
+  </div>
+  <div class="card" *ngIf="sectorExposure$ | async as exposure">
+    <header><h3>Sector Exposure</h3></header>
+    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
+    <div *ngIf="exposure.slices.length > 0" class="chart">
+      <canvas baseChart
+        [data]="toExposureChart(exposure)"
+        [options]="exposureChartOptions"
+        chartType="doughnut"></canvas>
+    </div>
+  </div>
+  <div class="card" *ngIf="currencyExposure$ | async as exposure">
+    <header><h3>Currency Exposure</h3></header>
+    <p *ngIf="exposure.slices.length === 0">No active positions.</p>
+    <div *ngIf="exposure.slices.length > 0" class="chart">
+      <canvas baseChart
+        [data]="toExposureChart(exposure)"
+        [options]="exposureChartOptions"
+        chartType="doughnut"></canvas>
+    </div>
+  </div>
+</section>
+
+<section class="card" *ngIf="unrealized$ | async as unrealized">
+  <header><h3>Top Unrealized PnL</h3></header>
+  <p *ngIf="unrealized.items.length === 0">No unrealized PnL available.</p>
+  <table *ngIf="unrealized.items.length > 0">
+    <thead>
+      <tr>
+        <th>Instrument</th>
+        <th>Market Value (EUR)</th>
+        <th>Unrealized PnL (EUR)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let item of unrealized.items | slice:0:10">
+        <td>
+          <strong>{{ item.symbol }}</strong>
+          <div class="subtle" *ngIf="item.name && item.name !== item.symbol">
+            {{ item.name }}
+          </div>
+        </td>
+        <td>{{ (item.market_value_eur ?? 0) | number: '1.2-2' }}</td>
+        <td
+          [class.positive]="item.unrealized_pnl_eur >= 0"
+          [class.negative]="item.unrealized_pnl_eur < 0"
+        >
+          {{ item.unrealized_pnl_eur | number: '1.2-2' }}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>

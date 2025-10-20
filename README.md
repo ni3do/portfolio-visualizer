@@ -132,6 +132,8 @@ The raw Flex files are archived under the `etl_data` volume (`./secrets` keeps c
 
    ```bash
    docker compose run --rm etl backfill --days 365 --snapshots
+   # or specify an absolute date range
+    docker compose run --rm etl backfill --start-date 2010-01-01 --snapshots
    ```
 
    Use `--prices-only`, `--fx-only`, or `--snapshots` to target specific datasets.
@@ -191,6 +193,52 @@ docker compose run --rm etl clear-cache
 docker compose run --rm etl price-update
 ```
 
+## Visualizer Stack (FastAPI + Angular)
+
+The modern stack runs alongside the ETL to provide the new API and PWA experience documented in `docs/spec.md`.
+
+1. Ensure all secrets exist (adds the API basic-auth credentials):
+
+   ```bash
+   ./scripts/create-dev-secrets.sh --overwrite
+   ```
+
+2. Build and start the services:
+
+   ```bash
+   docker compose up -d visualizer-api visualizer-web
+   ```
+
+   The Angular build serves on [http://localhost:8081](http://localhost:8081) with the API proxying under `/api`.
+
+3. For local dev with hot reload:
+
+   ```bash
+   docker compose --profile dev up visualizer-web-dev visualizer-api
+   ```
+
+   Then visit [http://localhost:4200](http://localhost:4200). The API runs on port 8080 with CORS enabled for local hosts.
+
+4. Credentials: username from `secrets/visualizer_basic_auth_user` (default `visualizer`), password from `secrets/visualizer_basic_auth_password`.
+
+### API & UI tests
+
+- Python tests (FastAPI):
+
+  ```bash
+  cd services/api
+  pytest
+  ```
+
+- Angular unit tests:
+
+  ```bash
+  cd services/web
+  npm test
+  ```
+
+`pytest` leverages patched repository functions so it does not require a running Postgres instance. Angular tests run under Karma and rely on the generated `package-lock.json`.
+
 ## Manual Imports (IBKR & Swissquote)
 
 Imports automatically trigger a 365-day price/FX backfill and hourly snapshot rebuild unless `--no-backfill` is provided.
@@ -204,7 +252,8 @@ Imports automatically trigger a 365-day price/FX backfill and hourly snapshot re
 3. Inspect data or rerun a snapshot if required. A default 365-day backfill (prices, FX, snapshots) executes automatically. Adjust via `--backfill-days` or skip with `--no-backfill`.
 
    Flags:
-   - `--backfill-days`: override the default 365-day window.
+   - `--backfill-days`: override the default 365-day window (ignored when `--backfill-start-date` is supplied).
+   - `--backfill-start-date`, `--backfill-end-date`: request price/FX/snapshot backfill for a specific absolute range (e.g., `--backfill-start-date 2014-01-01`).
    - `--no-backfill`: skip automatic backfill/snapshot rebuild.
    - `--delimiter` / `--timezone`: adjust Swissquote parsing if needed.
 

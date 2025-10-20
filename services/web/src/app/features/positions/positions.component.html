@@ -1,0 +1,51 @@
+<section class="card" *ngIf="positions$ | async as positions">
+  <header>
+    <h2>Open Positions</h2>
+    <span>Total value: {{ positions.total_eur | number: '1.2-2' }} EUR</span>
+  </header>
+
+  <p *ngIf="positions.positions.length === 0">
+    No positions available.
+  </p>
+
+  <div class="table-wrapper" *ngIf="positions.positions.length > 0">
+    <table>
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Symbol</th>
+          <th>Name</th>
+          <th>Shares</th>
+          <th>Last Price</th>
+          <th>Market Value</th>
+          <th>Cost Basis</th>
+          <th>Unrealized PnL</th>
+          <th>Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let position of positions.positions">
+          <td>{{ position.account_id }}</td>
+          <td>{{ position.symbol }}</td>
+          <td>{{ position.name || '—' }}</td>
+          <td>{{ position.shares | number: '1.2-2' }}</td>
+          <td>
+            {{ position.last_price | number: '1.2-2' }}
+            <span class="subtle" *ngIf="position.last_price_as_of">
+              ({{ position.last_price_as_of | date: 'short' }})
+            </span>
+          </td>
+          <td>{{ (position.market_value_eur ?? 0) | number: '1.2-2' }}</td>
+          <td>{{ (position.cost_basis_eur ?? 0) | number: '1.2-2' }}</td>
+          <td
+            [class.positive]="(position.unrealized_pnl_eur ?? 0) >= 0"
+            [class.negative]="(position.unrealized_pnl_eur ?? 0) < 0"
+          >
+            {{ (position.unrealized_pnl_eur ?? 0) | number: '1.2-2' }}
+          </td>
+          <td>{{ (position.weight ?? 0) | percent: '1.1-1' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

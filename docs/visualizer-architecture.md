@@ -1,169 +1,159 @@
-# Portfolio Visualizer Replacement Architecture
+# Portfolio Visualizer Architecture
 
-## 1. Modernized Stack Overview
-- **Backend**: Python 3.11 + FastAPI application served by Uvicorn. FastAPI aligns with the existing Python ETL codebase, enables async database access via SQLModel/SQLAlchemy, and offers automatic OpenAPI docs for the PWA team.
-- **Frontend**: Angular 17 Progressive Web App generated with Angular CLI. Angular's opinionated structure fits the multi-dashboard requirements, and the built-in PWA toolkit (service workers, asset versioning) simplifies offline snapshots and push-style refreshes.
-- **Database**: Continue to use PostgreSQL 15 as the system of record. Read-only queries remain routed through the existing application role.
-- **Runtime**: Docker Compose orchestrates Postgres, ETL, the new `visualizer-api` service, and a `visualizer-web` frontend container. Grafana becomes optional (dev-only) or is fully removed once the PWA reaches feature parity.
-- **Documentation Alignment**: This architecture replaces the Grafana-centric flow described in `docs/spec.md` and `implementation-plan.md`. As those documents are updated, cross-link the relevant sections so the team can trace requirements from the legacy dashboards to the new API + PWA implementation.
+## 0. Context & Goals
+- Replace the legacy Grafana-only dashboard with a FastAPI backend and Angular 17 PWA while retaining the Python ETL and database foundation.
+- Keep feature parity with existing dashboards during the transition; use this document alongside `docs/spec.md` for requirement traceability.
+- Enable a modular deployment that lets teams run Grafana in parallel for regression testing until the Angular UI is validated.
 
-## 2. Grafana Dashboard Audit
-Each Grafana panel must be reimplemented via API endpoints and frontend components. Queries below operate against the `portfolio` database.
+## 1. Target Architecture (FastAPI + Angular)
+### 1.1 Docker Compose Services
+- `postgres`: PostgreSQL 15 with persistent `pg_data` volume and healthcheck probes.
+- `etl`: Python 3.11 container running APScheduler jobs and CLI importers.
+- `visualizer-api`: FastAPI application (Uvicorn) exposing REST endpoints that supersede Grafana SQL.
+- `visualizer-web`: Angular 17 PWA built with Angular Material, served via nginx in production and `ng serve` in the `dev` profile.
+- `grafana` (legacy profile): optional reference dashboards until the Angular UI reaches parity.
+- `mcp`: standalone read-only Model Context Protocol server (`http://localhost:8000/mcp`) for internal debugging; not proxied by the API.
 
-| Panel | Purpose / Metric | SQL Source |
-| --- | --- | --- |
-| Portfolio Value (EUR) | Hourly aggregated NAV in EUR | `SELECT $__timeGroup(snapshot_at::timestamp, '1h') AS time, SUM(value_eur) AS portfolio_value_eur FROM portfolio_value_snapshot GROUP BY 1 ORDER BY 1;`
-| Unrealized PnL by Position | Latest unrealized PnL per instrument in base currency | CTE chain combining `positions_snapshot`, `instruments`, `prices`, `fx_rates` to compute market value & unrealized PnL (see panel id 2 SQL). |
-| Recent Trades | 25 most recent transactions including quantity, price, fees | `SELECT t.date_time_utc, t.account_id, i.symbol, t.type, t.qty, t.price, t.currency, t.net_amount, t.fees FROM transactions t JOIN instruments i ... ORDER BY t.date_time_utc DESC LIMIT 25;`
-| Country Exposure | Portfolio value breakdown by issuer country | Same valuation CTE as panel 2 with grouping on `i.country` (panel id 4 SQL). |
-| Sector Exposure | Portfolio value breakdown by sector | Same valuation CTE as panel 2 with grouping on `i.sector` (panel id 5 SQL). |
-| Currency Exposure | Market value by instrument currency | Same valuation CTE as panel 2 with grouping on instrument currency (panel id 6 SQL). |
-| Open Positions | Tabular holdings view including weights, last price, PnL | Extended valuation CTE returning columns for quantity, price timestamps, cost basis, PnL, sector, country (panel id 7 SQL). |
+### 1.2 Networking & Secrets
+- Compose services share an internal bridge network; expose FastAPI on `:8080`, Angular on `:8081` (`:4200` in dev), Grafana on `:3000`, MCP on `:8000`.
+- Secrets live under `/run/secrets/*` and are provisioned by `./scripts/create-dev-secrets.sh` or Make targets.
+- Required secrets: Postgres app credentials, JWT signing key, Grafana admin credentials (legacy), IBKR Flex token & query ID, optional OAuth/OIDC client config.
 
-> **Note:** Panels 2, 4, 5, 6, and 7 share nearly identical CTE pipelines for establishing the latest snapshot, prices, and FX rates. Refactoring these calculations into database views or reusable API service functions will reduce duplication.
->
-> **Traceability tip:** Capture the SQL for these panels in `docs/spec.md` (see §3) so the Angular feature modules can reference the canonical calculations when building charts and tables.
+### 1.3 Persistent Storage & Backups
+- Volumes: `pg_data`, `etl_data` (`/data/flex_archive`, price cache), `grafana_data`, and an `angular_dist` bind mount for local HMR if needed.
+- Nightly `pg_dump` of the `portfolio` database stored on the host with 14-day retention; document restore walkthroughs with credentials handling.
 
-## 3. Backend Service Design (FastAPI)
-- **Framework Rationale**: The ETL is already Python-based with mature SQLAlchemy models; FastAPI lets us reuse schemas and domain logic. Async endpoints allow efficient parallelization of price & FX queries.
-- **Database Access**: Use SQLAlchemy 2.0 or SQLModel with async `asyncpg` driver. Create read-only sessions bound to the existing Postgres application role.
-- **Serialization**: Pydantic models surface typed responses. Start with lightweight in-process TTL caches for aggregated queries; consider Redis later only if multiple API replicas need to share cache state.
-- **Background Tasks**: Provide hooks to trigger ETL refreshes (optional) through FastAPI background tasks, but keep heavy data processing in the ETL container.
+### 1.4 Data Flow Overview
+1. **ETL ingestion** pulls IBKR Flex, Swissquote, and yfinance data into Postgres (see §2 and §4).
+2. **FastAPI (`visualizer-api`)** reads through async SQLModel/SQLAlchemy sessions, applies caching, and exposes endpoints listed in §1.5.
+3. **Angular PWA** consumes those endpoints via typed services and RxJS stores to render dashboards and tables.
+4. **Legacy Grafana** can run concurrently for validation during the cutover period.
 
-## 4. Frontend PWA (Angular + Material Design)
-- **Layout**: Recreate Grafana's overview as Angular routes with a shared layout shell (toolbar, filters, responsive grid). Utilize Angular Material's `mat-sidenav`, `mat-toolbar`, and `mat-grid-list` to deliver consistent Material UI styling.
-- **Data Fetching**: Centralize API calls in Angular services backed by the RxJS `HttpClient`. Use `shareReplay` caching on observables, and persist key datasets in IndexedDB via Angular service worker data groups or `@ngx-pwa/local-storage`.
-- **Visualization**: Adopt Material-themed charting libraries like `ngx-charts` or `ng2-charts` (Chart.js) for time series, donut, and bar charts. Build data tables with `MatTable` plus virtual scrolling, sorting, and filtering modules.
-- **PWA Enhancements**: Leverage Angular's `@angular/pwa` tooling for offline caching, update notifications, and background sync of snapshot data.
-
-## 5. API Surface
-All endpoints are prefixed with `/api`. Responses default to JSON.
+### 1.5 API Surface
+All endpoints are prefixed with `/api` and respond with JSON unless stated otherwise.
 
 | Endpoint | Method | Description | Backing Query / Notes |
 | --- | --- | --- | --- |
-| `/healthz` | GET | Liveness check returning service status. | Simple constant response; used by Compose healthcheck. |
-| `/portfolio/value` | GET | Returns timeseries NAV (defaults to last 90 days). Query params: `from`, `to`, `interval`. | Builds on panel 1 SQL with parameterized bucket size. |
-| `/portfolio/unrealized` | GET | Latest unrealized PnL per instrument; supports filters (`account_id`, `sector`, `country`). | Uses shared valuation service derived from panel 2 SQL. |
-| `/portfolio/exposure/country` | GET | Country allocation snapshot with EUR totals and percentages. | Derived from panel 4 SQL, adds computed weights. |
-| `/portfolio/exposure/sector` | GET | Sector allocation snapshot. | Derived from panel 5 SQL. |
-| `/portfolio/exposure/currency` | GET | Currency exposure snapshot. | Derived from panel 6 SQL. |
-| `/portfolio/positions` | GET | Paginated holdings table including cost basis, current price, PnL, weights. Supports sort & filter parameters. | Based on panel 7 SQL with pagination wrappers. |
-| `/transactions/recent` | GET | List of recent trades (`limit` param, default 25). | Panel 3 SQL with limit parameter. |
-| `/metrics/cache` | GET | Debug endpoint showing cache hit/miss counts (optional, protected). | In-memory metrics. |
+| `/healthz` | GET | Liveness check for Compose and ingress probes. | Static JSON response. |
+| `/auth/login` | POST | Issues JWT in an HTTP-only cookie after credential validation. | Flow depends on final auth provider choice. |
+| `/portfolio/value` | GET | Portfolio NAV time series (`from`, `to`, `interval`). | Parameterised version of Grafana panel 1 SQL. |
+| `/portfolio/unrealized` | GET | Latest unrealized PnL per instrument with filters. | Shared valuation pipeline from panels 2 and 7. |
+| `/portfolio/exposure/country` | GET | Country allocation snapshot with EUR totals and weights. | Grafana panel 4 SQL. |
+| `/portfolio/exposure/sector` | GET | Sector allocation snapshot. | Grafana panel 5 SQL. |
+| `/portfolio/exposure/currency` | GET | Currency exposure snapshot. | Grafana panel 6 SQL. |
+| `/portfolio/positions` | GET | Paginated holdings table with sort and filter params. | Extended panel 7 SQL plus pagination helpers. |
+| `/transactions/recent` | GET | Recent trades (`limit`, default 25). | Grafana panel 3 SQL. |
+| `/metrics/cache` | GET | Cache hit/miss diagnostics (protected). | Optional ops-only endpoint. |
 
-## 6. Authentication & Authorization
-- **Identity**: Issue a dedicated `visualizer_ro` Postgres role with `SELECT` permissions only. The API uses this role; the ETL retains elevated rights.
-- **API Auth**: Introduce JWT-based session tokens issued by a lightweight auth service or rely on Auth0/Okta integration (depending on org policy). For self-hosted setups, FastAPI's OAuth2 password flow backed by Postgres `app_users` table with bcrypt hashes is sufficient.
-- **Secret Management**: Reuse Docker secrets for DB credentials. Store JWT signing key as a new secret (`visualizer_jwt_secret`).
-- **Frontend Access**: PWA obtains tokens via login form; tokens stored in `httpOnly` cookies to prevent XSS. Support optional basic auth fallback for internal deployments.
+### 1.6 Frontend Modules & UX
+- Layout shell: Angular Material `mat-sidenav`, `mat-toolbar`, and responsive `mat-grid-list`.
+- Feature modules: `dashboard`, `positions`, `trades`, `auth`, `settings` with lazy-loaded routes.
+- Visualization: Prefer `ng2-charts` (Chart.js) or `ngx-charts` for time series, donut, and bar charts; tables use `MatTable` with virtual scrolling and filtering.
+- State & caching: Centralize API calls in services using `HttpClient` + RxJS `shareReplay`; persist offline data through service worker data groups or IndexedDB helpers.
+- PWA: Enable `@angular/pwa` for service workers, install prompts, background sync, and stale-data banners.
+- Production nginx build proxies `/api/*` to the FastAPI service; dev profile uses CORS-enabled direct calls to `http://localhost:8080`.
 
-## 7. Caching & Aggregation Strategy
-- **Database Views**: Create SQL views (or materialized views refreshed hourly) encapsulating the complex valuation CTE shared across panels. This reduces response time and simplifies API code.
-- **Application Cache**: Begin with per-endpoint in-memory caching (60-second TTL) inside the FastAPI process. Evaluate Redis or another distributed cache only if we scale to multiple API replicas or need cross-instance invalidation.
-- **Client Cache**: Angular services memoize via RxJS caching and Angular service worker data groups, mirroring Grafana's 5-minute refresh cadence while supporting offline fallbacks.
+### 1.7 Authentication & Authorization
+- Introduce a read-only Postgres role `visualizer_ro`; ETL retains elevated roles for writes.
+- FastAPI exposes basic auth for the initial rollout; document credential rotation in secrets management.
+- Keep the `/auth/login` scaffolding in place for a future JWT flow (per `docs/spec.md`) once an IdP decision is made.
+- Angular route guards will be wired for the eventual JWT flow; in the interim, protect routes via interceptors that attach basic auth credentials.
 
-## 8. Docker Compose Adjustments
-- **New Services**:
-  - `visualizer-api`: Builds from `./services/api` (FastAPI). Mounts shared code, exposes `:8080`, depends on Postgres. Healthcheck hitting `/healthz`.
-  - `visualizer-web`: Multi-stage build (Node 20) that compiles the Angular workspace and serves the production bundle via `nginx` on port `:8081`. Provide a dev profile that runs `ng serve` with HMR on `:4200` when needed.
-- **Optional Services**:
-  - `grafana`: Move behind a Compose profile (`profiles: ['legacy']`) so it runs only when explicitly requested (`docker compose --profile legacy up`). Eventually removable.
-- **Secrets**: Add `visualizer_api_env` secret (contains JWT secret & API config) and reuse `postgres_app_user/_password` for DB access.
-- **Networking**: Place API and web on same default network; configure CORS between web (frontend) and API. Frontend container proxies API via internal hostname `visualizer-api:8080`.
+### 1.8 Deployment Profiles & Compose Updates
+- Extend `docker-compose.yml` with `visualizer-api` and `visualizer-web` services under `services/api/` and `services/web/`, plus an optional `visualizer-web-dev` profile for HMR.
+- Compose profiles: `dev` (Angular HMR via `visualizer-web-dev`, FastAPI can be overridden with `--reload`) and `prod` (nginx-serving built PWA).
+- Move `grafana` behind a `legacy` profile (`docker compose --profile legacy up`) and add secrets `visualizer_basic_auth_user` / `visualizer_basic_auth_password` alongside existing Postgres credentials.
+- Expose FastAPI CORS origins via `VISUALIZER_CORS_ORIGINS` (comma-separated, defaults to `http://localhost:4200,http://localhost:8081`).
 
-## 9. Migration Checklist
-1. Scaffold FastAPI service with shared DB models and valuation view helpers.
-2. Extract Grafana SQL into database views or SQLAlchemy queries.
-3. Build Angular PWA replicating dashboard panels using API endpoints and Angular Material components.
-4. Implement JWT auth + login page; integrate Angular interceptors for token handling and RxJS-based data caching.
-5. Update Docker Compose & secrets; document rollout process.
-6. Decommission Grafana once new UI validated.
+### 1.9 Open Integration Questions
+- Finalise the long-term auth provider (self-managed JWT vs. external IdP) and update both this doc and `docs/spec.md` when ready.
+- Document any future Grafana cutover checklist once the owner approves decommissioning.
 
-## 10. Detailed Implementation Outline
+## 2. Data Sources & Ingestion
+### 2.1 IBKR Flex Web Service
+- Retrieve CSV/XML statements using Flex token and query ID.
+- Parse instruments, transactions, cash movements, and FX rates; archive raw files under `/data/flex_archive`.
+- Support manual ingestion through `flex-import`/`import-ibkr`.
 
-### Phase 0 – Foundations & Project Setup
-1. **Repository preparation**
-   - Create `services/api/` and `services/web/` directories with their own `README.md` files describing local development commands.
-   - Add `.editorconfig`, shared lint configurations (`ruff.toml`, `pyproject.toml`, `eslint.config.js`), and pre-commit hooks to enforce formatting parity across backend and frontend.
-2. **Environment configuration**
-   - Introduce `.env.example` files for both services detailing required environment variables (DB URL, JWT secrets, API base URL, etc.).
-   - Define Docker secrets in `docker-compose.yml` and ensure local `make` targets or scripts exist to provision them from `secrets/`.
-3. **CI/CD bootstrapping**
-   - Update GitHub Actions (or equivalent) to lint and test both the FastAPI and Angular workspaces on every push.
+### 2.2 Swissquote CSV Import
+- Provide parity with the Flex importer, including schema ensure, upserts, and optional backfills.
+- CLI command `import-swissquote` handles delimiter/timezone variants, writes transactions and cash data, and triggers snapshot recomputation.
 
-### Phase 1 – Database & Data Access Layer
-1. **SQL artifacts**
-   - Create SQL views/materialized views for valuation pipelines (`portfolio_latest_positions`, `portfolio_exposure_country`, etc.) under `etl/sql/views/` with migration scripts.
-   - Provide refresh functions or ETL hooks to update materialized views after each ETL run.
-2. **SQLAlchemy models**
-   - Generate Pydantic/SQLModel schemas for the new views in `services/api/app/models/`.
-   - Centralize DB session management in `services/api/app/db.py` with async engine, session factory, and dependency injection utilities.
-3. **Unit coverage**
-   - Add tests validating SQL view outputs against fixture datasets using pytest + a temporary Postgres schema spun up via `pytest-postgresql` or Docker.
+### 2.3 Market Data via yfinance
+- Primary source for prices and FX; respect rate limits and allow override via `instruments.yfinance_symbol`.
+- Capture both daily (`1d`) and hourly (`60m`) candles for held instruments; retain hourly data for intraday PnL and document storage monitoring.
+- Persist source timestamp, close price, and currency; fall back to daily close when hourly bars are unavailable.
 
-### Phase 2 – FastAPI Service Build-Out
-1. **Project scaffolding**
-   - Initialize FastAPI app with routers stored under `services/api/app/routers/` and domain services in `services/api/app/services/`.
-   - Implement `main.py` to load settings from environment variables (`pydantic-settings`) and mount routers.
-2. **Endpoint development**
-   - Translate each Grafana query into a dedicated service function returning typed Pydantic responses; leverage shared valuation utilities for exposures to avoid duplication.
-   - Implement pagination helpers, filter parsing, and error handling (404s for missing instruments, validation errors).
-3. **Caching & performance**
-   - Wrap read-heavy service calls with an in-memory TTL cache (e.g., `fastapi-cache2` or custom `asyncio` cache) and expose metrics via `/metrics/cache`.
-   - Add OpenAPI tags, response models, and examples to aid frontend consumption.
-4. **Testing**
-   - Write API tests using `httpx.AsyncClient` + `pytest` hitting an ephemeral Postgres seeded with fixture data.
-   - Validate authentication guards via dependency overrides in tests.
+### 2.4 MCP Exposure
+- Maintain the standalone MCP server (`run_sql_query` endpoint) strictly for internal debugging; FastAPI does not proxy or surface MCP capabilities to the frontend.
 
-### Phase 3 – Authentication & Authorization
-1. **User management**
-   - Add `app_users` table migration (if not already present) and password hashing utilities using `passlib`.
-   - Provide CLI scripts in `services/api/scripts/` to create users/service accounts.
-2. **JWT implementation**
-   - Build token issuance endpoint (`/api/auth/login`) returning HTTP-only cookies and refresh tokens as needed.
-   - Configure middleware/guards for protected routes, and document token rotation strategy.
-3. **Secret handling**
-   - Document rotation procedures for DB credentials and JWT secrets in `docs/runbooks/auth.md`.
+## 3. Database & Read Models
+- `portfolio_value_snapshot` contains `snapshot_at`, `account_id`, `positions_value_eur`, `cash_value_eur`, `nav_eur`, `unrealized_pnl_eur`, `realized_pnl_eur`, `delta_eur`, and `created_at` with PK on (`snapshot_at`, `account_id`).
+- `realized_pnl_fifo` tracks FIFO lot closures with timestamps, quantities, proceeds, costs, PnL in native and EUR currencies; PK (`account_id`, `instrument_id`, `lot_opened_at`, `lot_closed_at`).
+- `data_gaps` records missing price, FX, or metadata entries with `gap_type`, `target_timestamp`, `detected_at`, optional `instrument_id`/`account_id`, and `details`.
+- Additional core tables: `instruments`, `transactions`, `cash_movements`, `prices`, `prices_hourly`, `fx_rates`, `positions_snapshot`.
+- Maintain indexes tuned for API access patterns (e.g., `data_gaps(gap_type, target_timestamp)`, `realized_pnl_fifo(account_id, instrument_id, lot_closed_at)`).
+- Cash value derives from the previous snapshot cash plus net trades and cash movements (converted to EUR at their FX rates).
+- Unrealized PnL is computed as positions market value minus remaining open-lot cost; `delta_eur` equals `nav_eur` minus prior NAV for the same account.
 
-### Phase 4 – Angular PWA Development
-1. **Workspace setup**
-   - Use Angular CLI to generate the project under `services/web/` with strict TypeScript mode and PWA support (`ng add @angular/pwa`).
-   - Configure Angular Material theme, typography, and global styles matching product branding.
-2. **Core modules**
-   - Establish feature modules (`dashboard`, `positions`, `trades`, `auth`) with routing definitions and lazy-loading.
-   - Implement shared UI components (cards, charts, filters) in `shared/` module, integrating `ngx-charts`/`ng2-charts` wrappers.
-3. **State management & services**
-   - Create API services using `HttpClient` with typed interfaces (`PortfolioValue`, `ExposureSlice`, etc.) in `services/web/src/app/api/`.
-   - Introduce RxJS stores (e.g., `ComponentStore` or signals) for caching and shareReplay semantics.
-4. **PWA/offline features**
-   - Configure Angular service worker data groups for API caching and background sync.
-   - Provide an offline snapshot view that displays the last successful fetch with timestamp.
-5. **Testing & quality**
-   - Add unit tests via Jasmine/Karma or Jest, plus end-to-end tests using Cypress or Playwright hitting a mocked API.
+## 4. ETL Workloads & Scheduling
+### 4.1 Flex Importer
+- Runs daily at 18:00/18:30 CET with manual CLI entry points.
+- Upserts parsed entities, enforces schema migrations, and emits `data_gaps` when expected FX or instrument data is missing.
 
-### Phase 5 – Integration, Observability & Deployment
-1. **Compose integration**
-   - Wire `docker-compose.yml` to build and network the API and web containers, ensuring `.env` overrides for local dev.
-   - Add `Makefile` or `scripts/dev.sh` for common workflows (`make dev`, `make test`, `make lint`).
-2. **Observability**
-   - Instrument FastAPI with Prometheus metrics (`prometheus-fastapi-instrumentator`) and structured logging.
-   - Configure frontend logging/reporting (Sentry or equivalent) and document environment variable hooks.
-3. **Documentation & handoff**
-   - Update `docs/` with API reference, frontend component catalog, and runbooks for deployments.
-   - Provide rollout checklist covering blue/green deploy, data validation against Grafana, and stakeholder sign-off.
+### 4.2 Swissquote Importer
+- Mirrors Flex cadence and behaviour, supporting manual CSV ingestion and missing-data logging.
 
-### Phase 6 – Cutover & Grafana Decommissioning
-1. **Parallel run**
-   - Operate Grafana and the new PWA concurrently, comparing key metrics daily using automated diff scripts.
-   - Gather user feedback, log any discrepancies, and patch API/frontend accordingly.
-2. **Final switch**
-   - Update DNS or load balancer to point to the new web frontend.
-   - Disable Grafana service in Compose, archive dashboards, and document rollback steps.
+### 4.3 Price Updater
+- Executes every 15 minutes (:00/:15/:30/:45 CET); builds holdings targets, fetches yfinance data, and upserts `prices`.
+- Logs `data_gaps` when tickers lack metadata or yfinance fails to return data; downstream snapshot stage converts non-EUR valuations.
 
-## 11. Alignment & Open Questions
+### 4.4 FX Updater
+- Runs on a 15-minute offset (:10/:25/:40/:55 CET); sources FX exclusively from yfinance.
+- Falls back to the most recent prior rate when same-day data is missing and records a `data_gaps` entry for later backfill.
 
-- **Spec integration**: `docs/spec.md` now carries both legacy Grafana requirements and the new FastAPI + Angular architecture. Ensure future updates keep the endpoint tables and Angular module plans in sync with the API surface defined above.
-- **Implementation plan**: `implementation-plan.md` still documents the minimal Grafana deployment. Confirm whether we should revise that plan to mirror this migration roadmap or maintain it as a legacy reference for existing deployments.
-- **MCP service**: The repository introduces an `mcp` container in Compose. Determine if the new API should expose MCP capabilities directly, proxy them, or leave the existing service untouched.
-- **Auth provider**: Decision between in-house JWT issuance and external IdP (Auth0/Okta) remains open. Capture the final choice in both this architecture doc and `docs/spec.md` once stakeholders confirm.
-- **Caching strategy**: Redis is intentionally deferred. If we later scale to multiple API replicas, revisit §7 to detail the distributed cache rollout plan.
+### 4.5 Snapshot Recompute
+- Prepares FIFO queues per account/instrument, processes transactions chronologically, and matches buys/sells against queues.
+- Persists realized entries to `realized_pnl_fifo`, updates open lot state, computes cash balances, positions value, and unrealized PnL.
+- Emits `data_gaps` when prices, FX, or positions are incomplete; scheduled hourly (:05/:20/:35/:50 CET) with manual CLI triggers.
+
+### 4.6 Backfill Service
+- CLI-driven refresh for prices, FX, and snapshots with configurable scope.
+- Overwrites historical rows rather than append-only behaviour and clears `data_gaps` once missing data is supplied.
+
+### 4.7 Instrument Metadata Updater
+- Runs daily at 03:30 CET (and via CLI) to refresh sector, region, exchange fields in `instruments`.
+
+### 4.8 Performance & Returns
+- Track cash flows from transactions and external movements, storing normalized values in native and base currencies.
+- Maintain realized/unrealized PnL via FIFO and snapshots.
+- Compute simple returns, holdings change, NAV deltas, TWR, MWR/IRR, cumulative realized PnL, and contribution/withdrawal summaries; persist metrics per snapshot and instrument for dashboards, MCP, and CLI reports.
+
+## 5. Grafana Parity & Validation
+- Recreate Grafana panels as API endpoints and Angular components; map portfolio value, unrealized PnL, recent trades, country/sector/currency exposures, and open positions to the endpoints in §1.5.
+- Capture the canonical SQL for legacy panels in `docs/spec.md` to ensure traceability between Grafana queries and API logic.
+- Maintain the missing-data dashboard with counts by `gap_type`, detailed table view, seven-day trend, and oldest gap age.
+- Operate Grafana under the `legacy` profile for side-by-side checks until the repository owner explicitly approves decommissioning.
+
+## 6. Monitoring & Observability
+- Angular components should surface discrepancy banners when API data diverges from Grafana during parallel runs.
+- Log warnings for missing price/FX/snapshot/instrument data alongside `data_gaps` entries.
+- Consider Prometheus instrumentation for FastAPI (`prometheus-fastapi-instrumentator`) and structured logging for ETL/API/frontend.
+- Optional alerting (Grafana or future Angular tooling) for stale prices, outstanding gaps, or failed ETL jobs.
+
+## 7. Operations & Maintenance
+- Preserve APScheduler cron cadence; jobs must be idempotent and resilient to delayed execution.
+- Document secret rotation (rerun helper script locally, orchestrator-managed in production) and include JWT rotation once auth is final.
+- Maintain nightly `pg_dump` backup scripts with retention policy and documented restore steps.
+- Keep container health checks (`pg_isready`, `/healthz`, Angular/nginx HTTP checks, Grafana HTTP when enabled) and encourage log shipping/rotation.
+
+## 8. Delivery & Cutover Strategy
+- Extend repo scripts to build/run the API and web services, plus convenience targets for tests and linting.
+- Run FastAPI and Angular in parallel with Grafana, comparing key metrics daily via automated diff scripts and capturing discrepancies.
+- When parity is validated, switch ingress or DNS to the Angular frontend, disable the `legacy` profile, archive Grafana dashboards, and document rollback steps.
+
+## 9. Open Questions & Next Steps
+- Finalise the long-term auth provider decision (see §1.9) and reflect it across docs.
+- Capture the agreed Grafana decommissioning checklist once the owner signs off.
+- Update `implementation-plan.md` once delivery phases and cutover checklists are final.
+- Ensure new configuration surfaces through environment variables, documented defaults, and updates to `scripts/create-dev-secrets.sh`.

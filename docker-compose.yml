@@ -25,6 +25,8 @@ services:
     image: grafana/grafana:10.4.3
     container_name: pv_grafana
     restart: unless-stopped
+    profiles:
+      - legacy
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +87,64 @@ services:
       - ibkr_flex_token
       - ibkr_flex_query_id
 
+  visualizer-api:
+    build:
+      context: ./services/api
+    image: portfolio-visualizer-api:latest
+    container_name: pv_visualizer_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORTFOLIO_DB_HOST: postgres
+      PORTFOLIO_DB_PORT: "5432"
+      PORTFOLIO_DB_NAME: portfolio
+      PORTFOLIO_DB_USER_FILE: /run/secrets/postgres_app_user
+      PORTFOLIO_DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+      VISUALIZER_BASIC_AUTH_USER_FILE: /run/secrets/visualizer_basic_auth_user
+      VISUALIZER_BASIC_AUTH_PASSWORD_FILE: /run/secrets/visualizer_basic_auth_password
+      VISUALIZER_LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    secrets:
+      - postgres_app_user
+      - postgres_app_password
+      - visualizer_basic_auth_user
+      - visualizer_basic_auth_password
+
+  visualizer-web:
+    build:
+      context: ./services/web
+      target: production
+    image: portfolio-visualizer-web:latest
+    container_name: pv_visualizer_web
+    restart: unless-stopped
+    depends_on:
+      visualizer-api:
+        condition: service_started
+    ports:
+      - "8081:80"
+
+  visualizer-web-dev:
+    build:
+      context: ./services/web
+      target: dev
+    image: portfolio-visualizer-web-dev:latest
+    container_name: pv_visualizer_web_dev
+    profiles:
+      - dev
+    depends_on:
+      visualizer-api:
+        condition: service_started
+    ports:
+      - "4200:4200"
+    volumes:
+      - ./services/web:/app
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+
   mcp:
     build:
       context: ./etl
@@ -132,3 +192,7 @@ secrets:
     file: ./secrets/ibkr_flex_token
   ibkr_flex_query_id:
     file: ./secrets/ibkr_flex_query_id
+  visualizer_basic_auth_user:
+    file: ./secrets/visualizer_basic_auth_user
+  visualizer_basic_auth_password:
+    file: ./secrets/visualizer_basic_auth_password

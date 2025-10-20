@@ -1,0 +1,28 @@
+<div class="login-wrapper">
+  <form (ngSubmit)="submit()" #loginForm="ngForm">
+    <h1>Portfolio Visualizer</h1>
+    <p class="subtitle">Sign in with your basic auth credentials.</p>
+
+    <label for="username">Username</label>
+    <input
+      id="username"
+      name="username"
+      type="text"
+      [(ngModel)]="username"
+      required
+      autocomplete="username"
+    />
+
+    <label for="password">Password</label>
+    <input
+      id="password"
+      name="password"
+      type="password"
+      [(ngModel)]="password"
+      required
+      autocomplete="current-password"
+    />
+
+    <button type="submit" [disabled]="loginForm.invalid">Sign in</button>
+  </form>
+</div>

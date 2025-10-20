@@ -142,6 +142,11 @@ class SwissquoteImporter:
                 logger.warning("Skipping trade without instrument data: %s", data)
                 return None
             signed_qty = qty if "buy" in type_lower else -qty
+            net_ccy = net_amount if net_amount != 0 else (gross_amount or Decimal("0"))
+            if signed_qty > 0 and net_ccy > 0:
+                net_ccy *= Decimal("-1")
+            if signed_qty < 0 and net_ccy < 0:
+                net_ccy *= Decimal("-1")
             trade = Transaction(
                 trade_id=transaction_id,
                 account_id=account_id,
@@ -152,7 +157,7 @@ class SwissquoteImporter:
                 price=price,
                 currency=instrument.currency,
                 fees=fees.copy_abs(),
-                net_amount=net_amount if net_amount != 0 else (gross_amount or Decimal("0")),
+                net_amount=net_ccy,
                 source="swissquote",
                 raw_flex_id=None,
             )

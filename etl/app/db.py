@@ -30,6 +30,7 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 _ANY = object()
+_GLOBAL_ACCOUNT_ID = "__GLOBAL__"
 
 
 ALLOWED_METADATA_COLUMNS = {
@@ -52,12 +53,14 @@ BEGIN
     ) THEN
         ALTER TABLE positions_snapshot RENAME COLUMN date_utc TO snapshot_at;
     END IF;
-    BEGIN
-        ALTER TABLE positions_snapshot
-            ALTER COLUMN snapshot_at TYPE TIMESTAMPTZ USING snapshot_at::timestamp;
-    EXCEPTION
-        WHEN undefined_column THEN NULL;
-    END;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'positions_snapshot') THEN
+        BEGIN
+            ALTER TABLE positions_snapshot
+                ALTER COLUMN snapshot_at TYPE TIMESTAMPTZ USING snapshot_at::timestamp;
+        EXCEPTION
+            WHEN undefined_column THEN NULL;
+        END;
+    END IF;
 
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -65,12 +68,14 @@ BEGIN
     ) THEN
         ALTER TABLE portfolio_value_snapshot RENAME COLUMN date_utc TO snapshot_at;
     END IF;
-    BEGIN
-        ALTER TABLE portfolio_value_snapshot
-            ALTER COLUMN snapshot_at TYPE TIMESTAMPTZ USING snapshot_at::timestamp;
-    EXCEPTION
-        WHEN undefined_column THEN NULL;
-    END;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'portfolio_value_snapshot') THEN
+        BEGIN
+            ALTER TABLE portfolio_value_snapshot
+                ALTER COLUMN snapshot_at TYPE TIMESTAMPTZ USING snapshot_at::timestamp;
+        EXCEPTION
+            WHEN undefined_column THEN NULL;
+        END;
+    END IF;
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'portfolio_value_snapshot' AND column_name = 'ret_day'
@@ -1026,7 +1031,7 @@ def upsert_data_gaps(pool: ConnectionPool, gaps: Iterable[DataGap]) -> int:
             "gap_type": gap.gap_type,
             "target_timestamp": gap.target_timestamp,
             "instrument_id": gap.instrument_id,
-            "account_id": gap.account_id,
+            "account_id": gap.account_id or _GLOBAL_ACCOUNT_ID,
             "details": Json(gap.details) if gap.details is not None else None,
             "detected_at": gap.detected_at or now,
         }
@@ -1069,7 +1074,8 @@ def delete_data_gap(
 
     if account_id is not _ANY:
         if account_id is None:
-            conditions.append("account_id IS NULL")
+            conditions.append("account_id = %(account_id)s")
+            params["account_id"] = _GLOBAL_ACCOUNT_ID
         else:
             conditions.append("account_id = %(account_id)s")
             params["account_id"] = account_id

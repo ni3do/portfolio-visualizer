@@ -1,0 +1,39 @@
+<section class="card" *ngIf="trades$ | async as trades">
+  <header>
+    <h2>Recent Trades</h2>
+    <span>{{ trades.trades.length }} records</span>
+  </header>
+
+  <p *ngIf="trades.trades.length === 0">No trades recorded.</p>
+
+  <div class="table-wrapper" *ngIf="trades.trades.length > 0">
+    <table>
+      <thead>
+        <tr>
+          <th>Executed</th>
+          <th>Account</th>
+          <th>Symbol</th>
+          <th>Type</th>
+          <th>Quantity</th>
+          <th>Price</th>
+          <th>Currency</th>
+          <th>Net Amount</th>
+          <th>Fees</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let trade of trades.trades">
+          <td>{{ trade.executed_at | date: 'short' }}</td>
+          <td>{{ trade.account_id }}</td>
+          <td>{{ trade.symbol }}</td>
+          <td>{{ trade.trade_type }}</td>
+          <td>{{ trade.quantity | number: '1.2-2' }}</td>
+          <td>{{ trade.price | number: '1.2-4' }}</td>
+          <td>{{ trade.currency }}</td>
+          <td>{{ trade.net_amount | number: '1.2-2' }}</td>
+          <td>{{ trade.fees | number: '1.2-2' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

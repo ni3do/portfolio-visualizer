@@ -47,6 +47,7 @@ All jobs live under `etl/app`. This page summarises their behaviour, inputs, and
 ## Historical Backfill (`BackfillService`)
 
 - **Command:** `docker compose run --rm etl backfill --days 365 --snapshots`
+- **Additional ranges:** use `--start-date YYYY-MM-DD` (and optional `--end-date`) to backfill an absolute window, e.g. `--start-date 2010-01-01 --snapshots`.
 - **Options:** `--prices-only`, `--fx-only`
 - **Behaviour:** Clears yfinance caches, downloads daily closes for each mapped instrument and FX pair, and upserts into `prices` and `fx_rates`.
 - **Use cases:** Initial portfolio onboarding or refreshing gaps caused by downtime.
@@ -55,4 +56,4 @@ All jobs live under `etl/app`. This page summarises their behaviour, inputs, and
 - **IBKR Flex file:** `docker compose run --rm etl import-ibkr --file /data/imports/flex.csv`
 - **Swissquote CSV:** `docker compose run --rm etl import-swissquote --file /data/imports/file.csv --timezone Europe/Zurich`
 
-Both commands automatically trigger a 365-day price/FX backfill and hourly snapshot rebuild (disable via `--no-backfill` or tune with `--backfill-days`).
+Both commands automatically trigger a 365-day price/FX backfill and hourly snapshot rebuild (disable via `--no-backfill`, tune with `--backfill-days`, or provide `--backfill-start-date` / `--backfill-end-date` for very old data).
