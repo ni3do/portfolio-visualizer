@@ -125,7 +125,7 @@ services:
       visualizer-api:
         condition: service_started
     ports:
-      - "8081:80"
+      - "8120:80"
 
   visualizer-web-dev:
     build:

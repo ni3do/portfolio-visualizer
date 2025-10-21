@@ -209,7 +209,7 @@ The modern stack runs alongside the ETL to provide the new API and PWA experienc
    docker compose up -d visualizer-api visualizer-web
    ```
 
-   The Angular build serves on [http://localhost:8081](http://localhost:8081) with the API proxying under `/api`.
+   The Angular build serves on [http://localhost:8120](http://localhost:8120) with the API proxying under `/api`.
 
 3. For local dev with hot reload:
 
@@ -218,6 +218,12 @@ The modern stack runs alongside the ETL to provide the new API and PWA experienc
    ```
 
    Then visit [http://localhost:4200](http://localhost:4200). The API runs on port 8080 with CORS enabled for local hosts.
+
+   The default CORS origins already allow `https://portfolio.siwachter.com`. Add any extra domains by extending `VISUALIZER_CORS_ORIGINS`, for example:
+
+   ```bash
+   export VISUALIZER_CORS_ORIGINS="http://localhost:4200,http://localhost:8120,https://portfolio.siwachter.com"
+   ```
 
 4. Credentials: username from `secrets/visualizer_basic_auth_user` (default `visualizer`), password from `secrets/visualizer_basic_auth_password`.
 5. The UI ships with Catppuccin dark/light themes (Mocha default, Latte optional) and a dedicated `/exposures` view for country/region/sector/industry/currency breakdowns.

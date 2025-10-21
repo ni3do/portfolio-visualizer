@@ -15,7 +15,7 @@
 - `mcp`: standalone read-only Model Context Protocol server (`http://localhost:8000/mcp`) for internal debugging; not proxied by the API.
 
 ### 1.2 Networking & Secrets
-- Compose services share an internal bridge network; expose FastAPI on `:8080`, Angular on `:8081` (`:4200` in dev), Grafana on `:3000`, MCP on `:8000`.
+- Compose services share an internal bridge network; expose FastAPI on `:8080`, Angular on `:8120` (`:4200` in dev), Grafana on `:3000`, MCP on `:8000`.
 - Secrets live under `/run/secrets/*` and are provisioned by `./scripts/create-dev-secrets.sh` or Make targets.
 - Required secrets: Postgres app credentials, JWT signing key, Grafana admin credentials (legacy), IBKR Flex token & query ID, optional OAuth/OIDC client config.
 - Configuration env: `VISUALIZER_BASE_CURRENCY` controls the base currency used for API conversions (default `EUR`).
@@ -69,7 +69,7 @@ All endpoints are prefixed with `/api` and respond with JSON unless stated other
 - Extend `docker-compose.yml` with `visualizer-api` and `visualizer-web` services under `services/api/` and `services/web/`, plus an optional `visualizer-web-dev` profile for HMR.
 - Compose profiles: `dev` (Angular HMR via `visualizer-web-dev`, FastAPI can be overridden with `--reload`) and `prod` (nginx-serving built PWA).
 - Move `grafana` behind a `legacy` profile (`docker compose --profile legacy up`) and add secrets `visualizer_basic_auth_user` / `visualizer_basic_auth_password` alongside existing Postgres credentials.
-- Expose FastAPI CORS origins via `VISUALIZER_CORS_ORIGINS` (comma-separated, defaults to `http://localhost:4200,http://localhost:8081`).
+- Expose FastAPI CORS origins via `VISUALIZER_CORS_ORIGINS` (comma-separated, defaults to `http://localhost:4200,http://localhost:8120,https://portfolio.siwachter.com`).
 
 ### 1.9 Open Integration Questions
 - Finalise the long-term auth provider (self-managed JWT vs. external IdP) and update both this doc and `docs/spec.md` when ready.

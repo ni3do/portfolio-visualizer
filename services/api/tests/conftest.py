@@ -19,7 +19,7 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VISUALIZER_BASIC_AUTH_USER", "apiuser")
     monkeypatch.setenv("VISUALIZER_BASIC_AUTH_PASSWORD", "apipass")
     monkeypatch.setenv(
-        "VISUALIZER_CORS_ORIGINS", "http://localhost:4200,http://localhost:8081"
+        "VISUALIZER_CORS_ORIGINS", "http://localhost:4200,http://localhost:8120"
     )
     load_settings.cache_clear()
     close_pool()

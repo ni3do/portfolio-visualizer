@@ -15,7 +15,7 @@
 - `mcp`: Read-only Model Context Protocol server (HTTP on `localhost:8000/mcp`) for ad-hoc SQL access; confirm whether it remains standalone or is proxied by the new API.
 
 ### 1.2 Networking & Secrets
-- Internal bridge network; expose Angular on `:8081` (or `:4200` for dev) and FastAPI on `:8080`. Grafana remains on `:3000` when enabled, MCP on `:8000`.
+- Internal bridge network; expose Angular on `:8120` (or `:4200` for dev) and FastAPI on `:8080`. Grafana remains on `:3000` when enabled, MCP on `:8000`.
 - Secrets injected via Docker secrets under `/run/secrets/*`, provisioned by `./scripts/create-dev-secrets.sh` or equivalent Make targets.
 - Required secrets: Postgres app user/password, JWT signing secret for the API, Grafana admin user/password (legacy), IBKR Flex token & query ID, optional OAuth/OIDC client config if an external IdP is selected.
 

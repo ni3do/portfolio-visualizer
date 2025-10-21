@@ -66,7 +66,8 @@ def load_settings() -> ApiSettings:
 
     log_level = os.getenv("VISUALIZER_LOG_LEVEL", "INFO").upper()
     cors_raw = os.getenv(
-        "VISUALIZER_CORS_ORIGINS", "http://localhost:4200,http://localhost:8081"
+        "VISUALIZER_CORS_ORIGINS",
+        "http://localhost:4200,http://localhost:8120,https://portfolio.siwachter.com",
     )
     cors_origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
     base_currency = os.getenv("VISUALIZER_BASE_CURRENCY", "EUR").upper()

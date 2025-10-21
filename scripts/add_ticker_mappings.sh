@@ -13,17 +13,17 @@ BEGIN;
 UPDATE instruments
    SET yfinance_symbol = 'EURDKK=X'
  WHERE symbol = 'EUR.DKK'
-   AND COALESCE(NULLIF(yfinance_symbol, ''), '') = '';
+   AND COALESCE(NULLIF(yfinance_symbol, ''), symbol) = symbol;
 
 UPDATE instruments
    SET yfinance_symbol = 'UETW.DE'
  WHERE symbol = 'WRDUSW'
-   AND COALESCE(NULLIF(yfinance_symbol, ''), '') = '';
+   AND COALESCE(NULLIF(yfinance_symbol, ''), symbol) = symbol;
 
 UPDATE instruments
    SET yfinance_symbol = 'BTC-USD'
  WHERE symbol = 'XBT'
-   AND COALESCE(NULLIF(yfinance_symbol, ''), '') = '';
+   AND COALESCE(NULLIF(yfinance_symbol, ''), symbol) = symbol;
 COMMIT;
 SQL
 "
@@ -40,6 +40,10 @@ $COMPOSE_BIN run --rm etl snapshot-recompute
 # Show the updated mappings for confirmation
 $COMPOSE_BIN exec -T postgres bash -lc "
   PGPASSWORD=\$(cat /run/secrets/postgres_app_password) \
-  psql -U \$(cat /run/secrets/postgres_app_user) -d portfolio \
-       -c \"SELECT symbol, yfinance_symbol FROM instruments WHERE symbol IN ('EUR.DKK','WRDUSW','XBT');\"
+  psql -U \$(cat /run/secrets/postgres_app_user) -d portfolio <<'SQL'
+SELECT instrument_id, symbol, yfinance_symbol
+FROM instruments
+WHERE symbol IN ('EUR.DKK','WRDUSW','XBT')
+ORDER BY symbol;
+SQL
 "
