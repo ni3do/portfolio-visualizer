@@ -1,0 +1,111 @@
+<div class="mapping">
+  <header class="mapping__header">
+    <div>
+      <h1>Instrument Mapping</h1>
+      <p class="mapping__subtitle">
+        Map holdings without a Yahoo Finance ticker. Search for the correct symbol and assign it
+        to keep pricing data flowing.
+      </p>
+    </div>
+    <button type="button" (click)="refresh()" [disabled]="isLoading()">
+      Refresh
+    </button>
+  </header>
+
+  <div *ngIf="isLoading()" class="mapping__status">Loading unmapped instruments…</div>
+  <div *ngIf="!isLoading() && loadError()" class="mapping__status mapping__status--error">
+    {{ loadError() }}
+    <button type="button" (click)="refresh()">Try again</button>
+  </div>
+
+  <ng-container *ngIf="!isLoading() && !loadError()">
+    <div *ngIf="rows().length === 0" class="mapping__status mapping__status--success">
+      All instruments are currently mapped to Yahoo Finance tickers.
+    </div>
+
+    <table *ngIf="rows().length > 0" class="mapping__table">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th>Details</th>
+          <th>Shares</th>
+          <th class="mapping__actions-header">Mapping</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of rows(); trackBy: trackByInstrument">
+          <td>
+            <div class="mapping__instrument">
+              <strong>{{ row.instrument.symbol || '—' }}</strong>
+              <div class="mapping__name">{{ row.instrument.name || 'Unnamed instrument' }}</div>
+            </div>
+          </td>
+          <td>
+            <div class="mapping__meta">
+              <span *ngIf="row.instrument.currency">{{ row.instrument.currency }}</span>
+              <span *ngIf="row.instrument.primary_exchange">{{ row.instrument.primary_exchange }}</span>
+              <span *ngIf="row.instrument.asset_class">{{ row.instrument.asset_class }}</span>
+            </div>
+            <div class="mapping__meta">
+              <span *ngIf="row.instrument.region">{{ row.instrument.region }}</span>
+              <span *ngIf="row.instrument.country">{{ row.instrument.country }}</span>
+              <span *ngIf="row.instrument.sector">{{ row.instrument.sector }}</span>
+            </div>
+          </td>
+          <td class="mapping__shares">
+            {{ row.instrument.shares ?? 0 | number: '1.2-2' }}
+          </td>
+          <td>
+            <div class="mapping__search">
+              <input
+                type="text"
+                [formControl]="row.control"
+                [placeholder]="'Search ticker for ' + (row.instrument.symbol || 'instrument')"
+              />
+              <div class="mapping__buttons">
+                <button
+                  type="button"
+                  (click)="onSearch(row.instrument.instrument_id)"
+                  [disabled]="row.loading || row.saving"
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  class="mapping__apply"
+                  (click)="onApply(row.instrument.instrument_id)"
+                  [disabled]="row.saving"
+                >
+                  Map
+                </button>
+              </div>
+            </div>
+            <div class="mapping__message" *ngIf="row.loading">Searching…</div>
+            <div class="mapping__message mapping__message--error" *ngIf="row.error">{{ row.error }}</div>
+            <ul class="mapping__suggestions" *ngIf="row.suggestions.length > 0">
+              <li *ngFor="let suggestion of row.suggestions">
+                <div>
+                  <strong>{{ suggestion.symbol }}</strong>
+                  <div>
+                    {{ suggestion.short_name || suggestion.long_name || 'No description' }}
+                  </div>
+                  <div class="mapping__suggestion-meta">
+                    <span *ngIf="suggestion.exchange">{{ suggestion.exchange }}</span>
+                    <span *ngIf="suggestion.quote_type">{{ suggestion.quote_type }}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  (click)="onApply(row.instrument.instrument_id, suggestion.symbol)"
+                  [disabled]="row.saving"
+                >
+                  Use
+                </button>
+              </li>
+            </ul>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </ng-container>
+</div>

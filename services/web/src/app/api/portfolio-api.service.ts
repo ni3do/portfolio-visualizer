@@ -10,7 +10,10 @@ import {
   DividendsResponse,
   ReturnsResponse,
   TradesResponse,
-  UnrealizedResponse
+  UnrealizedResponse,
+  UnmappedInstrumentsResponse,
+  YFinanceSearchResponse,
+  InstrumentMappingResponse
 } from './models';
 
 @Injectable({
@@ -93,6 +96,29 @@ export class PortfolioApiService {
     return this.http.get<ReturnsResponse>(`${this.apiBase}/portfolio/returns`, {
       params: query
     });
+  }
+
+  getUnmappedInstruments(): Observable<UnmappedInstrumentsResponse> {
+    return this.http.get<UnmappedInstrumentsResponse>(
+      `${this.apiBase}/instruments/unmapped`
+    );
+  }
+
+  searchYfinanceSymbols(query: string, limit = 10): Observable<YFinanceSearchResponse> {
+    const params = new HttpParams().set('q', query).set('limit', limit);
+    return this.http.get<YFinanceSearchResponse>(`${this.apiBase}/instruments/search`, {
+      params
+    });
+  }
+
+  updateInstrumentMapping(
+    instrumentId: number,
+    yfinanceSymbol: string | null
+  ): Observable<InstrumentMappingResponse> {
+    return this.http.put<InstrumentMappingResponse>(
+      `${this.apiBase}/instruments/${instrumentId}/mapping`,
+      { yfinance_symbol: yfinanceSymbol }
+    );
   }
 
   private composeParams(input?: {

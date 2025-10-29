@@ -89,3 +89,39 @@ export interface ReturnPoint {
 export interface ReturnsResponse {
   points: ReturnPoint[];
 }
+
+export interface UnmappedInstrument {
+  instrument_id: number;
+  symbol?: string;
+  name?: string;
+  currency?: string;
+  primary_exchange?: string;
+  asset_class?: string;
+  sector?: string;
+  industry?: string;
+  country?: string;
+  region?: string;
+  shares?: number;
+}
+
+export interface UnmappedInstrumentsResponse {
+  instruments: UnmappedInstrument[];
+}
+
+export interface InstrumentMappingResponse {
+  instrument_id: number;
+  yfinance_symbol?: string;
+}
+
+export interface YFinanceSearchResult {
+  symbol: string;
+  short_name?: string;
+  long_name?: string;
+  exchange?: string;
+  quote_type?: string;
+}
+
+export interface YFinanceSearchResponse {
+  query: string;
+  results: YFinanceSearchResult[];
+}

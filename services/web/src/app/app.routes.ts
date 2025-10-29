@@ -39,6 +39,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'instrument-mapping',
+        loadComponent: () =>
+          import('./features/instrument-mapping/instrument-mapping.component').then(
+            (m) => m.InstrumentMappingComponent
+          )
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./features/settings/settings.component').then(
