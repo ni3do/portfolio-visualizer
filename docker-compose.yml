@@ -107,13 +107,12 @@ services:
       VISUALIZER_LOG_LEVEL: INFO
       VISUALIZER_BASE_CURRENCY: EUR
     ports:
-      - "8080:8080"
+      - "5967:8080"
     secrets:
       - postgres_app_user
       - postgres_app_password
       - visualizer_basic_auth_user
       - visualizer_basic_auth_password
-
   visualizer-web:
     build:
       context: ./services/web
@@ -126,6 +125,16 @@ services:
         condition: service_started
     ports:
       - "8120:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.visualizer-web.rule=Host(`portfolio.siwachter.com`)"
+      - "traefik.http.routers.visualizer-web.entrypoints=websecure"
+      - "traefik.http.routers.visualizer-web.tls=true"
+      - "traefik.http.routers.visualizer-web.tls.certresolver=cloudflare"
+      - "traefik.docker.network=proxy"
+    networks:
+      - default
+      - proxy
 
   visualizer-web-dev:
     build:
@@ -179,6 +188,11 @@ volumes:
   pg_data:
   grafana_data:
   etl_data:
+
+networks:
+  proxy:
+    name: proxy
+    external: true
 
 secrets:
   postgres_app_user:

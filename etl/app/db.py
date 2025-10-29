@@ -44,6 +44,8 @@ ALLOWED_METADATA_COLUMNS = {
     "primary_exchange",
 }
 
+ALLOWED_EXPOSURE_DIMENSIONS = {"sector", "region", "country"}
+
 
 RENAME_LEGACY_SNAPSHOTS = """
 DO $$
@@ -215,6 +217,20 @@ SCHEMA_STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS idx_portfolio_value_snapshot_account_date
     ON portfolio_value_snapshot (account_id, snapshot_at DESC);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS instrument_exposure_overrides (
+        instrument_id BIGINT NOT NULL REFERENCES instruments(instrument_id) ON DELETE CASCADE,
+        dimension TEXT NOT NULL,
+        label TEXT NOT NULL,
+        weight NUMERIC NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (instrument_id, dimension, label)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_instrument_exposure_overrides_dimension
+    ON instrument_exposure_overrides (dimension, label);
     """,
     """
     CREATE TABLE IF NOT EXISTS fx_rates (
@@ -681,6 +697,16 @@ def list_instrument_metadata_targets(
         query.append("     OR NULLIF(name, '') IS NULL")
         query.append("     OR NULLIF(primary_exchange, '') IS NULL")
         query.append("     OR NULLIF(asset_class, '') IS NULL")
+        query.append(
+            "     OR (UPPER(COALESCE(asset_class, '')) = 'ETF' AND NOT EXISTS ("
+        )
+        query.append(
+            "            SELECT 1 FROM instrument_exposure_overrides ie"
+        )
+        query.append(
+            "            WHERE ie.instrument_id = instruments.instrument_id"
+        )
+        query.append("          ))")
         query.append("    )")
 
     query.append("ORDER BY instrument_id;")
@@ -737,6 +763,91 @@ def update_instrument_metadata(
     )
 
     return rowcount
+
+
+def replace_instrument_exposures(
+    pool: ConnectionPool,
+    instrument_id: int,
+    exposures: Optional[Dict[str, Sequence[Tuple[str, float]]]],
+) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            if not exposures:
+                cur.execute(
+                    "DELETE FROM instrument_exposure_overrides WHERE instrument_id = %s",
+                    (instrument_id,),
+                )
+                conn.commit()
+                logger.debug(
+                    "Cleared all exposure overrides for instrument %s", instrument_id
+                )
+                return
+
+            for dimension, entries in exposures.items():
+                if dimension not in ALLOWED_EXPOSURE_DIMENSIONS:
+                    logger.debug(
+                        "Skipping unsupported exposure dimension %s for instrument %s",
+                        dimension,
+                        instrument_id,
+                    )
+                    continue
+
+                cur.execute(
+                    """
+                    DELETE FROM instrument_exposure_overrides
+                    WHERE instrument_id = %s AND dimension = %s
+                    """,
+                    (instrument_id, dimension),
+                )
+
+                if not entries:
+                    continue
+
+                payload: list[Dict[str, object]] = []
+                for label, weight in entries:
+                    if label is None or label == "":
+                        continue
+                    if weight is None:
+                        continue
+                    try:
+                        weight_decimal = Decimal(str(weight))
+                    except Exception:  # pylint: disable=broad-except
+                        logger.debug(
+                            "Skipping invalid weight %s for %s/%s",
+                            weight,
+                            instrument_id,
+                            label,
+                        )
+                        continue
+                    payload.append(
+                        {
+                            "instrument_id": instrument_id,
+                            "dimension": dimension,
+                            "label": label,
+                            "weight": weight_decimal,
+                        }
+                    )
+
+                if payload:
+                    cur.executemany(
+                        """
+                        INSERT INTO instrument_exposure_overrides (
+                            instrument_id, dimension, label, weight
+                        )
+                        VALUES (
+                            %(instrument_id)s,
+                            %(dimension)s,
+                            %(label)s,
+                            %(weight)s
+                        )
+                        ON CONFLICT (instrument_id, dimension, label) DO UPDATE
+                        SET weight = EXCLUDED.weight,
+                            updated_at = NOW();
+                        """,
+                        payload,
+                    )
+
+        conn.commit()
 
 
 def upsert_prices(pool: ConnectionPool, prices: Iterable[Price]) -> int:

@@ -271,14 +271,25 @@ def fetch_exposure(
     cte = _build_position_values_cte(account_id)
     sql = cte + f"""
 SELECT
-    {label_expr} AS label,
-    SUM(market_value_eur) AS total_eur
+    CASE
+        WHEN ie.label IS NOT NULL THEN ie.label
+        ELSE {label_expr}
+    END AS label,
+    SUM(
+        CASE
+            WHEN ie.label IS NOT NULL THEN position_values.market_value_eur * ie.weight
+            ELSE position_values.market_value_eur
+        END
+    ) AS total_eur
 FROM position_values
+LEFT JOIN instrument_exposure_overrides ie
+    ON ie.instrument_id = position_values.instrument_id
+   AND ie.dimension = %(dimension)s
 WHERE market_value_eur IS NOT NULL
 GROUP BY label
 ORDER BY total_eur DESC NULLS LAST;
 """
-    params: Dict[str, object] = {}
+    params: Dict[str, object] = {"dimension": dimension}
     if account_id:
         params["account_id"] = account_id
 

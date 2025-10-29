@@ -34,6 +34,10 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
 
+    @app.get("/", include_in_schema=False)
+    def root() -> dict[str, str]:
+        return {"status": "ok"}
+
     @app.on_event("startup")
     def _startup() -> None:
         init_pool(settings)

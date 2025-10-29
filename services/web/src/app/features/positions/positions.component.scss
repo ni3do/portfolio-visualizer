@@ -1,8 +1,10 @@
 .card {
-  background: #fff;
+  background: var(--color-card-bg);
+  color: var(--color-text);
   border-radius: 12px;
   padding: 1.5rem;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--color-card-border);
 }
 
 header {
@@ -11,6 +13,7 @@ header {
   align-items: center;
   margin-bottom: 1rem;
   font-weight: 500;
+  color: var(--color-text);
 }
 
 .table-wrapper {
@@ -30,27 +33,27 @@ td {
 }
 
 thead {
-  background: #e2e8f0;
+  background: var(--color-table-header-bg);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.75rem;
-  color: #475569;
+  color: var(--color-text);
 }
 
 tbody tr:nth-child(even) {
-  background: rgba(226, 232, 240, 0.5);
+  background: var(--color-table-row-alt);
 }
 
 .subtle {
   display: block;
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 0.75rem;
 }
 
 .positive {
-  color: #0f9d58;
+  color: var(--color-positive);
 }
 
 .negative {
-  color: #d93025;
+  color: var(--color-negative);
 }
