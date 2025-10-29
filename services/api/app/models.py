@@ -130,3 +130,43 @@ class ReturnPoint(BaseModel):
 
 class ReturnsResponse(BaseModel):
     points: List[ReturnPoint]
+
+
+class UnmappedInstrumentItem(BaseModel):
+    instrument_id: int
+    symbol: Optional[str] = None
+    name: Optional[str] = None
+    currency: Optional[str] = None
+    primary_exchange: Optional[str] = None
+    asset_class: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    shares: Optional[float] = None
+
+
+class UnmappedInstrumentsResponse(BaseModel):
+    instruments: List[UnmappedInstrumentItem]
+
+
+class InstrumentMappingUpdate(BaseModel):
+    yfinance_symbol: Optional[str] = None
+
+
+class InstrumentMappingResponse(BaseModel):
+    instrument_id: int
+    yfinance_symbol: Optional[str] = None
+
+
+class YFinanceSearchResult(BaseModel):
+    symbol: str
+    short_name: Optional[str] = None
+    long_name: Optional[str] = None
+    exchange: Optional[str] = None
+    quote_type: Optional[str] = None
+
+
+class YFinanceSearchResponse(BaseModel):
+    query: str
+    results: List[YFinanceSearchResult]

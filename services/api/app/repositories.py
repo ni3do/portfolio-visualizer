@@ -53,6 +53,70 @@ def fetch_portfolio_nav_series(
     return rows
 
 
+def fetch_unmapped_instruments(conn: Connection) -> List[Dict[str, object]]:
+    sql = """
+        WITH latest_snapshot AS (
+            SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot
+        ),
+        holdings AS (
+            SELECT
+                ps.instrument_id,
+                SUM(ps.shares) AS shares
+            FROM positions_snapshot ps
+            JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
+            WHERE ps.shares <> 0
+            GROUP BY ps.instrument_id
+        )
+        SELECT
+            i.instrument_id,
+            NULLIF(i.symbol, '') AS symbol,
+            NULLIF(i.name, '') AS name,
+            NULLIF(i.currency, '') AS currency,
+            NULLIF(i.primary_exchange, '') AS primary_exchange,
+            NULLIF(i.asset_class, '') AS asset_class,
+            NULLIF(i.sector, '') AS sector,
+            NULLIF(i.industry, '') AS industry,
+            NULLIF(i.country, '') AS country,
+            NULLIF(i.region, '') AS region,
+            h.shares
+        FROM instruments i
+        JOIN holdings h ON h.instrument_id = i.instrument_id
+        WHERE COALESCE(NULLIF(i.yfinance_symbol, ''), '') = ''
+        ORDER BY h.shares DESC NULLS LAST, i.symbol
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+    return rows
+
+
+def update_instrument_mapping(
+    conn: Connection,
+    *,
+    instrument_id: int,
+    yfinance_symbol: Optional[str],
+) -> Dict[str, object]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE instruments
+               SET yfinance_symbol = %(symbol)s
+             WHERE instrument_id = %(instrument_id)s
+         RETURNING instrument_id, NULLIF(yfinance_symbol, '') AS yfinance_symbol
+            """,
+            {"symbol": yfinance_symbol, "instrument_id": instrument_id},
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        conn.rollback()
+        raise ValueError("Instrument not found")
+
+    conn.commit()
+    return row
+
+
 def _build_position_values_cte(account_id: Optional[str]) -> str:
     account_filter = ""
     if account_id:

@@ -1,0 +1,151 @@
+.mapping {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: 12px;
+}
+
+.mapping__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.mapping__header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.mapping__subtitle {
+  margin: 0;
+  color: var(--color-muted);
+  max-width: 34rem;
+}
+
+.mapping__status {
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mapping__status--error {
+  border: 1px solid var(--color-negative);
+}
+
+.mapping__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mapping__table th,
+.mapping__table td {
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.mapping__table thead th {
+  background: var(--color-table-header-bg);
+  font-weight: 600;
+}
+
+.mapping__table tbody tr:nth-child(even) {
+  background: var(--color-table-row-alt);
+}
+
+.mapping__instrument {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.mapping__name {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.mapping__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.mapping__shares {
+  font-variant-numeric: tabular-nums;
+}
+
+.mapping__search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mapping__search input {
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-card-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.mapping__buttons {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.mapping__message {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.mapping__message--error {
+  color: var(--color-negative);
+}
+
+.mapping__suggestions {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.mapping__suggestions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.mapping__suggestion-meta {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .mapping {
+    padding: 1rem;
+  }
+
+  .mapping__table th,
+  .mapping__table td {
+    padding: 0.5rem;
+  }
+}
