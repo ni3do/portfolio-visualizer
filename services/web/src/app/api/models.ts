@@ -108,6 +108,27 @@ export interface UnmappedInstrumentsResponse {
   instruments: UnmappedInstrument[];
 }
 
+export interface MappedInstrument {
+  instrument_id: number;
+  symbol?: string;
+  name?: string;
+  yfinance_symbol?: string;
+  currency?: string;
+  primary_exchange?: string;
+  asset_class?: string;
+  sector?: string;
+  industry?: string;
+  country?: string;
+  region?: string;
+  shares?: number;
+  last_price?: number;
+  last_price_as_of?: string;
+}
+
+export interface MappedInstrumentsResponse {
+  instruments: MappedInstrument[];
+}
+
 export interface InstrumentMappingResponse {
   instrument_id: number;
   yfinance_symbol?: string;

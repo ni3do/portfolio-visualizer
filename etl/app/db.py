@@ -765,6 +765,31 @@ def update_instrument_metadata(
     return rowcount
 
 
+def clear_instrument_mapping(pool: ConnectionPool, instrument_id: int) -> bool:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE instruments
+                   SET yfinance_symbol = NULL
+                 WHERE instrument_id = %s
+                   AND COALESCE(NULLIF(yfinance_symbol, ''), '') <> ''
+                RETURNING instrument_id
+                """,
+                (instrument_id,),
+            )
+            updated = cur.rowcount
+        conn.commit()
+
+    if updated:
+        logger.info(
+            "Cleared yfinance mapping for instrument %s due to missing prices",
+            instrument_id,
+        )
+        return True
+    return False
+
+
 def replace_instrument_exposures(
     pool: ConnectionPool,
     instrument_id: int,

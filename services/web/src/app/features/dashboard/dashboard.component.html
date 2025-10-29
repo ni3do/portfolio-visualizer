@@ -30,6 +30,37 @@
   </ng-container>
 </section>
 
+<section class="card" *ngIf="unrealized$ | async as unrealized">
+  <header><h3>Top Unrealized PnL</h3></header>
+  <p *ngIf="unrealized.items.length === 0">No unrealized PnL available.</p>
+  <table *ngIf="unrealized.items.length > 0">
+    <thead>
+      <tr>
+        <th>Instrument</th>
+        <th>Market Value ({{ baseCurrency }})</th>
+        <th>Unrealized PnL ({{ baseCurrency }})</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let item of unrealized.items | slice:0:10">
+        <td>
+          <strong>{{ item.symbol }}</strong>
+          <div class="subtle" *ngIf="item.name && item.name !== item.symbol">
+            {{ item.name }}
+          </div>
+        </td>
+        <td>{{ formatCurrency(item.market_value_eur ?? 0) }}</td>
+        <td
+          [class.positive]="item.unrealized_pnl_eur >= 0"
+          [class.negative]="item.unrealized_pnl_eur < 0"
+        >
+          {{ formatCurrency(item.unrealized_pnl_eur) }}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
 <section class="card" *ngIf="returnsPlots$ | async as returns">
   <ng-container *ngIf="returns">
     <header>
@@ -117,33 +148,3 @@
   </table>
 </section>
 
-<section class="card" *ngIf="unrealized$ | async as unrealized">
-  <header><h3>Top Unrealized PnL</h3></header>
-  <p *ngIf="unrealized.items.length === 0">No unrealized PnL available.</p>
-  <table *ngIf="unrealized.items.length > 0">
-    <thead>
-      <tr>
-        <th>Instrument</th>
-        <th>Market Value ({{ baseCurrency }})</th>
-        <th>Unrealized PnL ({{ baseCurrency }})</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr *ngFor="let item of unrealized.items | slice:0:10">
-        <td>
-          <strong>{{ item.symbol }}</strong>
-          <div class="subtle" *ngIf="item.name && item.name !== item.symbol">
-            {{ item.name }}
-          </div>
-        </td>
-        <td>{{ formatCurrency(item.market_value_eur ?? 0) }}</td>
-        <td
-          [class.positive]="item.unrealized_pnl_eur >= 0"
-          [class.negative]="item.unrealized_pnl_eur < 0"
-        >
-          {{ formatCurrency(item.unrealized_pnl_eur) }}
-        </td>
-      </tr>
-    </tbody>
-  </table>
-</section>

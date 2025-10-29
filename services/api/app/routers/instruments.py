@@ -12,6 +12,8 @@ from psycopg import Connection
 from .. import repositories
 from ..database import get_db_connection
 from ..models import (
+    MappedInstrumentItem,
+    MappedInstrumentsResponse,
     InstrumentMappingResponse,
     InstrumentMappingUpdate,
     UnmappedInstrumentItem,
@@ -57,6 +59,43 @@ def list_unmapped_instruments(
         )
 
     return UnmappedInstrumentsResponse(instruments=instruments)
+
+
+@router.get(
+    "/mapped",
+    response_model=MappedInstrumentsResponse,
+    summary="List instruments with yfinance mappings",
+)
+def list_mapped_instruments(
+    *,
+    _: str = Depends(get_current_username),
+    conn: Connection = Depends(get_db_connection),
+) -> MappedInstrumentsResponse:
+    rows = repositories.fetch_mapped_instruments(conn)
+    instruments: List[MappedInstrumentItem] = []
+    for row in rows:
+        shares = row.get("shares")
+        last_price = row.get("last_price")
+        instruments.append(
+            MappedInstrumentItem(
+                instrument_id=row["instrument_id"],
+                symbol=row.get("symbol"),
+                name=row.get("name"),
+                currency=row.get("currency"),
+                primary_exchange=row.get("primary_exchange"),
+                asset_class=row.get("asset_class"),
+                sector=row.get("sector"),
+                industry=row.get("industry"),
+                country=row.get("country"),
+                region=row.get("region"),
+                yfinance_symbol=row.get("yfinance_symbol"),
+                shares=float(shares) if shares is not None else None,
+                last_price=float(last_price) if last_price is not None else None,
+                last_price_as_of=row.get("last_price_as_of"),
+            )
+        )
+
+    return MappedInstrumentsResponse(instruments=instruments)
 
 
 @router.put(

@@ -150,6 +150,27 @@ class UnmappedInstrumentsResponse(BaseModel):
     instruments: List[UnmappedInstrumentItem]
 
 
+class MappedInstrumentItem(BaseModel):
+    instrument_id: int
+    symbol: Optional[str] = None
+    name: Optional[str] = None
+    yfinance_symbol: Optional[str] = None
+    currency: Optional[str] = None
+    primary_exchange: Optional[str] = None
+    asset_class: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    shares: Optional[float] = None
+    last_price: Optional[float] = None
+    last_price_as_of: Optional[datetime] = None
+
+
+class MappedInstrumentsResponse(BaseModel):
+    instruments: List[MappedInstrumentItem]
+
+
 class InstrumentMappingUpdate(BaseModel):
     yfinance_symbol: Optional[str] = None
 

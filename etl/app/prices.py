@@ -72,6 +72,9 @@ class PriceUpdater:
 
         if failed_targets:
             logger.warning("Failed to fetch prices for %d instruments", len(failed_targets))
+
+        self._handle_failed_targets(failed_targets)
+
         if hourly_failures:
             logger.warning(
                 "Failed to fetch hourly prices for %d instruments", len(hourly_failures)
@@ -86,7 +89,7 @@ class PriceUpdater:
                     target_timestamp=gap_timestamp,
                     instrument_id=target.instrument_id,
                     account_id=None,
-                    details={"ticker": target.ticker},
+                    details={"ticker": target.ticker, "reason": "price_missing"},
                     detected_at=gap_timestamp,
                 )
                 for target in failed_targets
@@ -168,6 +171,27 @@ class PriceUpdater:
             time.sleep(1)
 
         return results, failures, hourly_results, hourly_failures
+
+    def _handle_failed_targets(self, failed_targets: List[PriceTarget]) -> None:
+        if not failed_targets:
+            return
+
+        cleared = 0
+        for target in failed_targets:
+            try:
+                if db.clear_instrument_mapping(self.pool, target.instrument_id):
+                    cleared += 1
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Failed to clear mapping for instrument %s (ticker=%s)",
+                    target.instrument_id,
+                    target.ticker,
+                )
+
+        if cleared:
+            logger.info(
+                "Cleared %d invalid yfinance mappings after price lookup failures", cleared
+            )
 
     def _fetch_price_yfinance(self, target: PriceTarget) -> Price | None:
         ticker = target.ticker

@@ -91,6 +91,57 @@ def fetch_unmapped_instruments(conn: Connection) -> List[Dict[str, object]]:
     return rows
 
 
+def fetch_mapped_instruments(conn: Connection) -> List[Dict[str, object]]:
+    sql = """
+        WITH latest_snapshot AS (
+            SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot
+        ),
+        holdings AS (
+            SELECT
+                ps.instrument_id,
+                SUM(ps.shares) AS shares
+            FROM positions_snapshot ps
+            JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
+            WHERE ps.shares <> 0
+            GROUP BY ps.instrument_id
+        ),
+        latest_prices AS (
+            SELECT DISTINCT ON (instrument_id)
+                instrument_id,
+                close,
+                currency,
+                as_of_utc
+            FROM prices
+            ORDER BY instrument_id, as_of_utc DESC
+        )
+        SELECT
+            i.instrument_id,
+            NULLIF(i.symbol, '') AS symbol,
+            NULLIF(i.name, '') AS name,
+            NULLIF(i.currency, '') AS currency,
+            NULLIF(i.primary_exchange, '') AS primary_exchange,
+            NULLIF(i.asset_class, '') AS asset_class,
+            NULLIF(i.sector, '') AS sector,
+            NULLIF(i.industry, '') AS industry,
+            NULLIF(i.country, '') AS country,
+            NULLIF(i.region, '') AS region,
+            NULLIF(i.yfinance_symbol, '') AS yfinance_symbol,
+            h.shares,
+            lp.close AS last_price,
+            lp.as_of_utc AS last_price_as_of
+        FROM instruments i
+        JOIN holdings h ON h.instrument_id = i.instrument_id
+        LEFT JOIN latest_prices lp ON lp.instrument_id = i.instrument_id
+        WHERE COALESCE(NULLIF(i.yfinance_symbol, ''), '') <> ''
+        ORDER BY h.shares DESC NULLS LAST, i.symbol
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+    return rows
+
+
 def update_instrument_mapping(
     conn: Connection,
     *,

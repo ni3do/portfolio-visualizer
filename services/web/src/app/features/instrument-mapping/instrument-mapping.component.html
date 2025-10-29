@@ -19,6 +19,67 @@
   </div>
 
   <ng-container *ngIf="!isLoading() && !loadError()">
+    <section *ngIf="mappedInstruments().length > 0" class="mapping__section">
+      <header class="mapping__section-header">
+        <h2>Current Mappings</h2>
+        <span class="mapping__section-note">
+          Review current ticker assignments and the most recent price captured for each holding.
+        </span>
+      </header>
+      <table class="mapping__table">
+        <thead>
+          <tr>
+            <th>Instrument</th>
+            <th>Ticker Mapping</th>
+            <th>Shares</th>
+            <th>Last Price</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let item of mappedInstruments()">
+            <td>
+              <div class="mapping__instrument">
+                <strong>{{ item.symbol || '—' }}</strong>
+                <div class="mapping__name">{{ item.name || 'Unnamed instrument' }}</div>
+              </div>
+              <div class="mapping__meta">
+                <span *ngIf="item.currency">{{ item.currency }}</span>
+                <span *ngIf="item.primary_exchange">{{ item.primary_exchange }}</span>
+                <span *ngIf="item.asset_class">{{ item.asset_class }}</span>
+              </div>
+              <div class="mapping__meta">
+                <span *ngIf="item.region">{{ item.region }}</span>
+                <span *ngIf="item.country">{{ item.country }}</span>
+                <span *ngIf="item.sector">{{ item.sector }}</span>
+              </div>
+            </td>
+            <td class="mapping__ticker">
+              <code *ngIf="item.yfinance_symbol; else unmappedTicker">{{ item.yfinance_symbol }}</code>
+              <ng-template #unmappedTicker>—</ng-template>
+            </td>
+            <td class="mapping__shares">
+              {{ item.shares ?? 0 | number: '1.2-2' }}
+            </td>
+            <td class="mapping__shares">
+              <ng-container *ngIf="item.last_price !== undefined && item.last_price !== null; else noPrice">
+                {{ item.last_price | number: '1.2-2' }}
+                <div class="mapping__meta" *ngIf="item.last_price_as_of">
+                  {{ item.last_price_as_of | date: 'short' }}
+                </div>
+              </ng-container>
+              <ng-template #noPrice>—</ng-template>
+            </td>
+            <td>
+              <div class="mapping__meta mapping__meta--column">
+                <span>{{ item.last_price_as_of ? (item.last_price_as_of | date: 'shortDate') : '—' }}</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <div *ngIf="rows().length === 0" class="mapping__status mapping__status--success">
       All instruments are currently mapped to Yahoo Finance tickers.
     </div>

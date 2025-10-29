@@ -12,6 +12,7 @@ import {
   TradesResponse,
   UnrealizedResponse,
   UnmappedInstrumentsResponse,
+  MappedInstrumentsResponse,
   YFinanceSearchResponse,
   InstrumentMappingResponse
 } from './models';
@@ -102,6 +103,10 @@ export class PortfolioApiService {
     return this.http.get<UnmappedInstrumentsResponse>(
       `${this.apiBase}/instruments/unmapped`
     );
+  }
+
+  getMappedInstruments(): Observable<MappedInstrumentsResponse> {
+    return this.http.get<MappedInstrumentsResponse>(`${this.apiBase}/instruments/mapped`);
   }
 
   searchYfinanceSymbols(query: string, limit = 10): Observable<YFinanceSearchResponse> {

@@ -1,8 +1,10 @@
 import { CommonModule } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 
 import {
+  MappedInstrument,
   UnmappedInstrument,
   YFinanceSearchResult
 } from '../../api/models';
@@ -30,16 +32,17 @@ export class InstrumentMappingComponent {
   readonly isLoading = signal<boolean>(false);
   readonly loadError = signal<string | null>(null);
   readonly rows = signal<InstrumentMappingRow[]>([]);
+  readonly mappedInstruments = signal<MappedInstrument[]>([]);
 
   constructor() {
-    this.fetchUnmapped();
+    this.fetchData();
   }
 
   trackByInstrument = (_: number, row: InstrumentMappingRow): number =>
     row.instrument.instrument_id;
 
   refresh(): void {
-    this.fetchUnmapped();
+    this.fetchData();
   }
 
   onSearch(instrumentId: number): void {
@@ -108,10 +111,7 @@ export class InstrumentMappingComponent {
 
     this.api.updateInstrumentMapping(instrumentId, target).subscribe({
       next: () => {
-        const remaining = this.rows().filter(
-          (item) => item.instrument.instrument_id !== instrumentId
-        );
-        this.rows.set(remaining);
+        this.fetchData();
       },
       error: () => {
         this.updateRow(instrumentId, (current) => ({
@@ -123,19 +123,24 @@ export class InstrumentMappingComponent {
     });
   }
 
-  private fetchUnmapped(): void {
+  private fetchData(): void {
     this.isLoading.set(true);
     this.loadError.set(null);
     this.rows.set([]);
+    this.mappedInstruments.set([]);
 
-    this.api.getUnmappedInstruments().subscribe({
-      next: (response) => {
-        const rows = response.instruments.map((instrument) => this.createRow(instrument));
+    forkJoin({
+      unmapped: this.api.getUnmappedInstruments(),
+      mapped: this.api.getMappedInstruments()
+    }).subscribe({
+      next: ({ unmapped, mapped }) => {
+        const rows = unmapped.instruments.map((instrument) => this.createRow(instrument));
         this.rows.set(rows);
+        this.mappedInstruments.set(mapped.instruments);
         this.isLoading.set(false);
       },
       error: () => {
-        this.loadError.set('Failed to load unmapped instruments.');
+        this.loadError.set('Failed to load instrument mappings.');
         this.isLoading.set(false);
       }
     });

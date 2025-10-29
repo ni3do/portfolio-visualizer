@@ -1,8 +1,10 @@
 .card {
-  background: #fff;
+  background: var(--color-card-bg);
+  color: var(--color-text);
   border-radius: 12px;
   padding: 1.5rem;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--color-card-border);
   max-width: 420px;
 }
 
@@ -13,13 +15,21 @@ header {
 button {
   margin-top: 1rem;
   padding: 0.75rem 1.5rem;
-  background: #0d1b2a;
-  color: #fff;
-  border: none;
+  background: var(--color-button-bg);
+  color: var(--color-button-text);
+  border: 1px solid transparent;
   border-radius: 0.5rem;
   cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 button:hover {
-  background: #1b263b;
+  background: var(--color-button-hover-bg);
+  border-color: var(--color-card-border);
+  color: var(--color-button-text);
+}
+
+button:active {
+  background: var(--color-button-active-bg);
+  color: var(--color-button-active-text);
 }
