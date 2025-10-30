@@ -1,0 +1,144 @@
+<section class="card" *ngIf="overview$ | async as overview; else overviewLoading">
+  <header class="card__header">
+    <div>
+      <h2>Portfolio Returns</h2>
+      <p class="card__meta">As of {{ overview.as_of | date: 'medium' }}</p>
+    </div>
+    <div class="timeframe-toggle">
+      <button
+        type="button"
+        *ngFor="let option of timeframes"
+        (click)="onSelectTimeframe(option.value)"
+        [class.active]="selectedTimeframe() === option.value"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+  </header>
+
+  <div class="summary-grid">
+    <div class="summary-tile">
+      <span class="summary-label">Portfolio Value</span>
+      <span class="summary-value">
+        {{ overview.portfolio.market_value_eur | number: '1.2-2' }} {{ baseCurrency }}
+      </span>
+      <span class="summary-subtle">
+        Cost Basis: {{ overview.portfolio.cost_basis_eur | number: '1.2-2' }} {{ baseCurrency }}
+      </span>
+    </div>
+    <div class="summary-tile">
+      <span class="summary-label">Price Return</span>
+      <span
+        class="summary-value"
+        [class.positive]="(overview.portfolio.price_return_pct ?? 0) >= 0"
+        [class.negative]="(overview.portfolio.price_return_pct ?? 0) < 0"
+      >
+        {{ formatPercent(overview.portfolio.price_return_pct) }}
+      </span>
+      <span class="summary-subtle">
+        Δ {{ overview.portfolio.delta_eur | number: '1.2-2' }} {{ baseCurrency }}
+      </span>
+    </div>
+    <div class="summary-tile">
+      <span class="summary-label">Time-Weighted Return</span>
+      <span
+        class="summary-value"
+        [class.positive]="(overview.portfolio.time_weighted_return_pct ?? 0) >= 0"
+        [class.negative]="(overview.portfolio.time_weighted_return_pct ?? 0) < 0"
+      >
+        {{ formatPercent(overview.portfolio.time_weighted_return_pct) }}
+      </span>
+      <span class="summary-subtle">Timeframe: {{ selectedTimeframe() }}</span>
+    </div>
+  </div>
+</section>
+
+<ng-template #overviewLoading>
+  <section class="card">
+    <header class="card__header">
+      <div>
+        <h2>Portfolio Returns</h2>
+      </div>
+      <div class="timeframe-toggle">
+        <button
+          type="button"
+          *ngFor="let option of timeframes"
+          (click)="onSelectTimeframe(option.value)"
+          [class.active]="selectedTimeframe() === option.value"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+    </header>
+    <p>Loading returns…</p>
+  </section>
+</ng-template>
+
+<section class="card">
+  <header class="card__header">
+    <h3>Historical Time-Weighted Return</h3>
+  </header>
+  <ng-container *ngIf="returnsPlot$ | async as plot; else plotLoading">
+    <div class="plot-container" *ngIf="plot; else noPlot">
+      <plotly-plot [data]="plot.data" [layout]="plot.layout" [config]="plot.config"></plotly-plot>
+    </div>
+  </ng-container>
+</section>
+
+<ng-template #plotLoading>
+  <p class="empty-state">Loading return series…</p>
+</ng-template>
+
+<ng-template #noPlot>
+  <p class="empty-state">Not enough data to display the return series.</p>
+</ng-template>
+
+<section class="card" *ngIf="overview$ | async as overview">
+  <header class="card__header">
+    <h3>Position Returns</h3>
+    <span class="card__meta">Price and time-weighted performance by holding</span>
+  </header>
+  <p *ngIf="overview.positions.length === 0" class="empty-state">
+    No positions available for the selected timeframe.
+  </p>
+  <div class="table-wrapper" *ngIf="overview.positions.length > 0">
+    <table>
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Symbol</th>
+          <th>Name</th>
+          <th class="numeric">Market Value ({{ baseCurrency }})</th>
+          <th class="numeric">Cost Basis ({{ baseCurrency }})</th>
+          <th class="numeric">Price Return</th>
+          <th class="numeric">Time-Weighted</th>
+          <th class="numeric">Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let position of overview.positions; trackBy: trackByPosition">
+          <td>{{ position.account_id }}</td>
+          <td>{{ position.symbol }}</td>
+          <td>{{ position.name || '—' }}</td>
+          <td class="numeric">{{ position.market_value_eur | number: '1.2-2' }}</td>
+          <td class="numeric">{{ position.cost_basis_eur | number: '1.2-2' }}</td>
+          <td
+            class="numeric"
+            [class.positive]="(position.price_return_pct ?? 0) >= 0"
+            [class.negative]="(position.price_return_pct ?? 0) < 0"
+          >
+            {{ formatPercent(position.price_return_pct) }}
+          </td>
+          <td
+            class="numeric"
+            [class.positive]="(position.time_weighted_return_pct ?? 0) >= 0"
+            [class.negative]="(position.time_weighted_return_pct ?? 0) < 0"
+          >
+            {{ formatPercent(position.time_weighted_return_pct) }}
+          </td>
+          <td class="numeric">{{ formatPercent(position.weight, '1.1-1') }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

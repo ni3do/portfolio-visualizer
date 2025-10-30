@@ -15,14 +15,19 @@ from ..models import (
     ExposureSlice,
     DividendsResponse,
     PortfolioPosition,
+    PortfolioReturnMetrics,
     PortfolioSeriesResponse,
+    PositionReturnBreakdown,
     PositionsResponse,
+    ReturnsOverviewResponse,
     ReturnsResponse,
     TimeSeriesPoint,
     UnrealizedItem,
     UnrealizedResponse,
 )
 from ..security import get_current_username
+
+ReturnKey = tuple[str, int]
 
 router = APIRouter(prefix="/portfolio")
 
@@ -286,6 +291,107 @@ def portfolio_returns(
 
 
 @router.get(
+    "/returns/overview",
+    response_model=ReturnsOverviewResponse,
+    summary="Portfolio return metrics",
+)
+def portfolio_returns_overview(
+    *,
+    start: Optional[datetime] = Query(
+        default=None,
+        alias="from",
+        description="Start timestamp (UTC). Defaults to 1 year ago.",
+    ),
+    end: Optional[datetime] = Query(
+        default=None,
+        alias="to",
+        description="End timestamp (UTC). Defaults to now.",
+    ),
+    account_id: Optional[str] = Query(default=None, description="Filter by account."),
+    _: str = Depends(get_current_username),
+    conn: Connection = Depends(get_db_connection),
+) -> ReturnsOverviewResponse:
+    settings = load_settings()
+    now = datetime.now(timezone.utc)
+    if end is None:
+        end = now
+    if start is None:
+        start = end - timedelta(days=365)
+    if start > end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'from' must be earlier than 'to'",
+        )
+
+    positions_rows = repositories.fetch_positions(conn, account_id=account_id)
+    as_of = repositories.fetch_latest_positions_snapshot_time(conn, account_id=account_id)
+    if as_of is None:
+        as_of = end
+
+    total_market = 0.0
+    total_cost = 0.0
+    for row in positions_rows:
+        total_market += float(row.get("market_value_eur") or 0.0)
+        total_cost += float(row.get("cost_basis_eur") or 0.0)
+
+    position_series = repositories.fetch_position_return_timeseries(
+        conn,
+        base_currency=settings.base_currency,
+        start=start,
+        end=end,
+        account_id=account_id,
+    )
+    position_twr = _calculate_position_time_weighted_returns(position_series)
+
+    positions: list[PositionReturnBreakdown] = []
+    for row in positions_rows:
+        market_value = float(row.get("market_value_eur") or 0.0)
+        cost_basis = float(row.get("cost_basis_eur") or 0.0)
+        key: ReturnKey = (row["account_id"], row["instrument_id"])
+        price_return = (market_value / cost_basis - 1.0) if cost_basis else None
+        weight = (market_value / total_market) if total_market else None
+        positions.append(
+            PositionReturnBreakdown(
+                account_id=row["account_id"],
+                symbol=row["symbol"],
+                name=row.get("name"),
+                market_value_eur=market_value,
+                cost_basis_eur=cost_basis,
+                price_return_pct=price_return,
+                time_weighted_return_pct=position_twr.get(key),
+                weight=weight,
+            )
+        )
+
+    total_delta = total_market - total_cost
+    portfolio_price_return = (total_market / total_cost - 1.0) if total_cost else None
+
+    returns_rows = repositories.fetch_returns_series(
+        conn,
+        base_currency=settings.base_currency,
+        start=start,
+        end=end,
+        interval="1d",
+        account_id=account_id,
+    )
+    portfolio_twr = _compound_time_weighted_returns(returns_rows)
+
+    portfolio_metrics = PortfolioReturnMetrics(
+        market_value_eur=total_market,
+        cost_basis_eur=total_cost,
+        delta_eur=total_delta,
+        price_return_pct=portfolio_price_return,
+        time_weighted_return_pct=portfolio_twr,
+    )
+
+    return ReturnsOverviewResponse(
+        as_of=as_of,
+        portfolio=portfolio_metrics,
+        positions=positions,
+    )
+
+
+@router.get(
     "/positions",
     response_model=PositionsResponse,
     summary="Paginated holdings table",
@@ -308,3 +414,50 @@ def portfolio_positions(
         positions=positions,
         total_eur=float(total or 0),
     )
+
+
+def _compound_time_weighted_returns(rows: list[dict]) -> Optional[float]:
+    total = 1.0
+    has_values = False
+    for row in rows:
+        pct = row.get("return_pct")
+        if pct is None:
+            continue
+        has_values = True
+        total *= 1 + float(pct)
+    if not has_values:
+        return None
+    return total - 1
+
+
+def _calculate_position_time_weighted_returns(
+    rows: list[dict],
+) -> dict[ReturnKey, float]:
+    grouped: dict[ReturnKey, list[dict]] = {}
+    for row in rows:
+        key: ReturnKey = (row["account_id"], row["instrument_id"])
+        grouped.setdefault(key, []).append(row)
+
+    results: dict[ReturnKey, float] = {}
+    for key, entries in grouped.items():
+        entries.sort(key=lambda item: item["bucket"])
+        prev_nav: Optional[float] = None
+        product = 1.0
+        has_values = False
+        for entry in entries:
+            nav = float(entry.get("nav_eur") or 0.0)
+            if prev_nav is None:
+                prev_nav = nav
+                continue
+            contribution = float(entry.get("contribution_eur") or 0.0)
+            denominator = prev_nav + contribution
+            if denominator == 0:
+                prev_nav = nav
+                continue
+            period_return = (nav - (prev_nav + contribution)) / denominator
+            product *= 1 + period_return
+            has_values = True
+            prev_nav = nav
+        if has_values:
+            results[key] = product - 1
+    return results

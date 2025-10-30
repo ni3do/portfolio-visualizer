@@ -243,6 +243,24 @@ position_values AS (
 """
 
 
+def fetch_latest_positions_snapshot_time(
+    conn: Connection, *, account_id: Optional[str]
+) -> Optional[datetime]:
+    params: Dict[str, object] = {}
+    sql = "SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot"
+    if account_id:
+        sql += " WHERE account_id = %(account_id)s"
+        params["account_id"] = account_id
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+
+    if not row:
+        return None
+    return row.get("snapshot_at")
+
+
 def fetch_positions(
     conn: Connection,
     *,
@@ -373,6 +391,120 @@ def fetch_portfolio_totals(
     if not row:
         return None
     return row.get("total")
+
+
+def fetch_position_return_timeseries(
+    conn: Connection,
+    *,
+    base_currency: str,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    account_id: Optional[str],
+) -> List[Dict[str, object]]:
+    params: Dict[str, object] = {
+        "start": start,
+        "end": end,
+        "base_currency": base_currency,
+    }
+
+    sql = """
+        WITH nav AS (
+            SELECT
+                ps.account_id,
+                ps.instrument_id,
+                date_trunc('day', ps.snapshot_at) AS bucket,
+                SUM(
+                    CASE
+                        WHEN price.close IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
+                        WHEN COALESCE(price.currency, i.currency) = %(base_currency)s THEN ps.shares * price.close
+                        WHEN fx.rate IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
+                        ELSE ps.shares * price.close * fx.rate
+                    END
+                ) AS nav_eur
+            FROM positions_snapshot ps
+            JOIN instruments i ON i.instrument_id = ps.instrument_id
+            LEFT JOIN LATERAL (
+                SELECT close, currency
+                FROM prices
+                WHERE instrument_id = ps.instrument_id
+                  AND as_of_utc <= ps.snapshot_at
+                ORDER BY as_of_utc DESC
+                LIMIT 1
+            ) price ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT rate
+                FROM fx_rates
+                WHERE from_ccy = COALESCE(price.currency, i.currency)
+                  AND to_ccy = %(base_currency)s
+                  AND date_utc <= ps.snapshot_at::date
+                ORDER BY date_utc DESC
+                LIMIT 1
+            ) fx ON TRUE
+            WHERE ps.shares <> 0
+              AND (%(start)s IS NULL OR ps.snapshot_at >= %(start)s)
+              AND (%(end)s IS NULL OR ps.snapshot_at <= %(end)s)
+    """
+
+    if account_id:
+        sql += "            AND ps.account_id = %(account_id)s\n"
+        params["account_id"] = account_id
+
+    sql += """
+            GROUP BY ps.account_id, ps.instrument_id, date_trunc('day', ps.snapshot_at)
+        ),
+        contributions AS (
+            SELECT
+                t.account_id,
+                t.instrument_id,
+                date_trunc('day', t.date_time_utc) AS bucket,
+                SUM(
+                    CASE
+                        WHEN t.currency = %(base_currency)s THEN -t.net_amount
+                        WHEN fx.rate IS NULL THEN 0
+                        ELSE -t.net_amount * fx.rate
+                    END
+                ) AS amount_base
+            FROM transactions t
+            LEFT JOIN LATERAL (
+                SELECT rate
+                FROM fx_rates
+                WHERE from_ccy = t.currency
+                  AND to_ccy = %(base_currency)s
+                  AND date_utc <= t.date_time_utc::date
+                ORDER BY date_utc DESC
+                LIMIT 1
+            ) fx ON TRUE
+            WHERE t.instrument_id IS NOT NULL
+              AND t.type NOT ILIKE 'DIV%%'
+              AND (%(start)s IS NULL OR t.date_time_utc >= %(start)s)
+              AND (%(end)s IS NULL OR t.date_time_utc <= %(end)s)
+    """
+
+    if account_id:
+        sql += "            AND t.account_id = %(account_id)s\n"
+
+    sql += """
+            GROUP BY t.account_id, t.instrument_id, date_trunc('day', t.date_time_utc)
+        )
+        SELECT
+            n.account_id,
+            n.instrument_id,
+            n.bucket,
+            n.nav_eur,
+            COALESCE(c.amount_base, 0) AS contribution_eur
+        FROM nav n
+        LEFT JOIN contributions c
+          ON c.account_id = n.account_id
+         AND c.instrument_id = n.instrument_id
+         AND c.bucket = n.bucket
+        ORDER BY n.account_id, n.instrument_id, n.bucket
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+    return rows
 
 
 def fetch_recent_trades(

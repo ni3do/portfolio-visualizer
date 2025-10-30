@@ -132,6 +132,31 @@ class ReturnsResponse(BaseModel):
     points: List[ReturnPoint]
 
 
+class PositionReturnBreakdown(BaseModel):
+    account_id: str
+    symbol: str
+    name: Optional[str] = None
+    market_value_eur: float
+    cost_basis_eur: Optional[float] = None
+    price_return_pct: Optional[float] = None
+    time_weighted_return_pct: Optional[float] = None
+    weight: Optional[float] = None
+
+
+class PortfolioReturnMetrics(BaseModel):
+    market_value_eur: float
+    cost_basis_eur: float
+    delta_eur: float
+    price_return_pct: Optional[float] = None
+    time_weighted_return_pct: Optional[float] = None
+
+
+class ReturnsOverviewResponse(BaseModel):
+    as_of: datetime
+    portfolio: PortfolioReturnMetrics
+    positions: List[PositionReturnBreakdown]
+
+
 class UnmappedInstrumentItem(BaseModel):
     instrument_id: int
     symbol: Optional[str] = None

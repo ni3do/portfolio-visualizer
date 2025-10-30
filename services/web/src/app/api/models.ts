@@ -90,6 +90,31 @@ export interface ReturnsResponse {
   points: ReturnPoint[];
 }
 
+export interface PositionReturnBreakdown {
+  account_id: string;
+  symbol: string;
+  name?: string;
+  market_value_eur: number;
+  cost_basis_eur: number;
+  price_return_pct?: number;
+  time_weighted_return_pct?: number;
+  weight?: number;
+}
+
+export interface PortfolioReturnMetrics {
+  market_value_eur: number;
+  cost_basis_eur: number;
+  delta_eur: number;
+  price_return_pct?: number;
+  time_weighted_return_pct?: number;
+}
+
+export interface ReturnsOverviewResponse {
+  as_of: string;
+  portfolio: PortfolioReturnMetrics;
+  positions: PositionReturnBreakdown[];
+}
+
 export interface UnmappedInstrument {
   instrument_id: number;
   symbol?: string;
