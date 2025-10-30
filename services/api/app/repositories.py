@@ -81,7 +81,7 @@ def fetch_unmapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             h.shares
         FROM instruments i
         JOIN holdings h ON h.instrument_id = i.instrument_id
-        WHERE COALESCE(NULLIF(i.yfinance_symbol, ''), '') = ''
+        WHERE COALESCE(NULLIF(TRIM(i.yfinance_symbol), ''), '') = ''
         ORDER BY h.shares DESC NULLS LAST, i.symbol
     """
 
@@ -125,14 +125,14 @@ def fetch_mapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             NULLIF(i.industry, '') AS industry,
             NULLIF(i.country, '') AS country,
             NULLIF(i.region, '') AS region,
-            NULLIF(i.yfinance_symbol, '') AS yfinance_symbol,
+            NULLIF(TRIM(i.yfinance_symbol), '') AS yfinance_symbol,
             h.shares,
             lp.close AS last_price,
             lp.as_of_utc AS last_price_as_of
         FROM instruments i
         JOIN holdings h ON h.instrument_id = i.instrument_id
         LEFT JOIN latest_prices lp ON lp.instrument_id = i.instrument_id
-        WHERE COALESCE(NULLIF(i.yfinance_symbol, ''), '') <> ''
+        WHERE COALESCE(NULLIF(TRIM(i.yfinance_symbol), ''), '') <> ''
         ORDER BY h.shares DESC NULLS LAST, i.symbol
     """
 
@@ -154,7 +154,7 @@ def update_instrument_mapping(
             UPDATE instruments
                SET yfinance_symbol = %(symbol)s
              WHERE instrument_id = %(instrument_id)s
-         RETURNING instrument_id, NULLIF(yfinance_symbol, '') AS yfinance_symbol
+         RETURNING instrument_id, NULLIF(TRIM(yfinance_symbol), '') AS yfinance_symbol
             """,
             {"symbol": yfinance_symbol, "instrument_id": instrument_id},
         )
