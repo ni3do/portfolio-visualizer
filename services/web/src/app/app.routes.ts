@@ -18,6 +18,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'returns',
+        loadComponent: () =>
+          import('./features/returns/returns.component').then(
+            (m) => m.ReturnsComponent
+          )
+      },
+      {
         path: 'positions',
         loadComponent: () =>
           import('./features/positions/positions.component').then(

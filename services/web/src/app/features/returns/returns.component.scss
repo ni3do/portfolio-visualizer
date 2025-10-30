@@ -1,0 +1,136 @@
+.card {
+  background: var(--color-card-bg);
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-elevated);
+  border: 1px solid var(--color-card-border);
+  margin-bottom: 1.5rem;
+}
+
+.card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card__meta {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.timeframe-toggle {
+  display: inline-flex;
+  background: var(--color-button-bg);
+  border-radius: 999px;
+  padding: 0.25rem;
+  gap: 0.25rem;
+}
+
+.timeframe-toggle button {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.timeframe-toggle button:hover {
+  background: var(--color-button-hover-bg);
+  color: var(--color-button-active-text);
+}
+
+.timeframe-toggle button.active {
+  background: var(--color-button-active-bg);
+  color: var(--color-button-active-text);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
+}
+
+.summary-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.summary-label {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-subtle {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.plot-container {
+  width: 100%;
+  height: 320px;
+}
+
+.plot-container plotly-plot {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.empty-state {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.table-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-wrapper th,
+.table-wrapper td {
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.table-wrapper thead {
+  background: var(--color-table-header-bg);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.table-wrapper tbody tr:nth-child(even) {
+  background: var(--color-table-row-alt);
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.positive {
+  color: var(--color-positive);
+}
+
+.negative {
+  color: var(--color-negative);
+}

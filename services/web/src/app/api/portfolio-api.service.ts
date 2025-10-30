@@ -11,6 +11,7 @@ import {
   ReturnsResponse,
   TradesResponse,
   UnrealizedResponse,
+  ReturnsOverviewResponse,
   UnmappedInstrumentsResponse,
   YFinanceSearchResponse,
   InstrumentMappingResponse
@@ -96,6 +97,24 @@ export class PortfolioApiService {
     return this.http.get<ReturnsResponse>(`${this.apiBase}/portfolio/returns`, {
       params: query
     });
+  }
+
+  getReturnsOverview(params?: {
+    from?: string;
+    to?: string;
+    accountId?: string;
+  }): Observable<ReturnsOverviewResponse> {
+    const query = this.composeParams({
+      from: params?.from,
+      to: params?.to,
+      accountId: params?.accountId
+    });
+    return this.http.get<ReturnsOverviewResponse>(
+      `${this.apiBase}/portfolio/returns/overview`,
+      {
+        params: query
+      }
+    );
   }
 
   getUnmappedInstruments(): Observable<UnmappedInstrumentsResponse> {
