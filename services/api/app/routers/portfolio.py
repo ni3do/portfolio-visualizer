@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import Connection
@@ -14,6 +14,7 @@ from ..models import (
     ExposureResponse,
     ExposureSlice,
     DividendsResponse,
+    PortfolioExposureResponse,
     PortfolioPosition,
     PortfolioReturnMetrics,
     PortfolioSeriesResponse,
@@ -30,6 +31,8 @@ from ..security import get_current_username
 ReturnKey = tuple[str, int]
 
 router = APIRouter(prefix="/portfolio")
+
+EXPOSURE_DIMENSIONS = ("country", "region", "sector", "industry", "currency")
 
 
 @router.get(
@@ -119,16 +122,30 @@ def portfolio_unrealized(
 
 def _exposure_response(rows: list[dict]) -> ExposureResponse:
     total_dec = sum(Decimal(row["total_eur"] or 0) for row in rows)
-    total = float(total_dec)
+    abs_total_dec = sum(Decimal(row["total_eur"] or 0).copy_abs() for row in rows)
+    total = float(abs_total_dec if abs_total_dec else total_dec)
     slices = [
         ExposureSlice(
             label=row["label"],
             value_eur=float(row["total_eur"] or 0),
-            weight=float(Decimal(row["total_eur"] or 0) / total_dec) if total_dec else 0.0,
+            weight=float(Decimal(row["total_eur"] or 0).copy_abs() / abs_total_dec)
+            if abs_total_dec
+            else 0.0,
         )
         for row in rows
     ]
     return ExposureResponse(slices=slices, total_eur=total)
+
+
+def _build_exposure_map(
+    rows: List[dict],
+    overrides: Dict[Tuple[int, str], List[dict]],
+) -> Dict[str, ExposureResponse]:
+    raw_sections = repositories.build_exposure_sections(rows, overrides)
+    return {
+        dimension: _exposure_response(section_rows)
+        for dimension, section_rows in raw_sections.items()
+    }
 
 
 @router.get(
@@ -143,16 +160,37 @@ def portfolio_exposure(
     _: str = Depends(get_current_username),
     conn: Connection = Depends(get_db_connection),
 ) -> ExposureResponse:
-    try:
-        rows = repositories.fetch_exposure(
-            conn, dimension=dimension, account_id=account_id
-        )
-    except ValueError as exc:
+    if dimension not in EXPOSURE_DIMENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    return _exposure_response(rows)
+            detail=f"Unsupported exposure dimension: {dimension}",
+        )
+
+    rows = repositories.fetch_exposure_positions(conn, account_id=account_id)
+    overrides = repositories.fetch_exposure_overrides(
+        conn, [row["instrument_id"] for row in rows]
+    )
+    exposures = _build_exposure_map(rows, overrides)
+    return exposures.get(dimension, _exposure_response([]))
+
+
+@router.get(
+    "/exposures",
+    response_model=PortfolioExposureResponse,
+    summary="Portfolio exposure snapshot across dimensions",
+)
+def portfolio_exposures(
+    *,
+    account_id: Optional[str] = Query(default=None, description="Filter by account."),
+    _: str = Depends(get_current_username),
+    conn: Connection = Depends(get_db_connection),
+) -> PortfolioExposureResponse:
+    rows = repositories.fetch_exposure_positions(conn, account_id=account_id)
+    overrides = repositories.fetch_exposure_overrides(
+        conn, [row["instrument_id"] for row in rows]
+    )
+    exposures = _build_exposure_map(rows, overrides)
+    return PortfolioExposureResponse(**exposures)
 
 
 @router.get(
@@ -252,7 +290,6 @@ def portfolio_returns(
     _: str = Depends(get_current_username),
     conn: Connection = Depends(get_db_connection),
 ) -> ReturnsResponse:
-    settings = load_settings()
     now = datetime.now(timezone.utc)
     if end is None:
         end = now
@@ -266,7 +303,6 @@ def portfolio_returns(
 
     rows = repositories.fetch_returns_series(
         conn,
-        base_currency=settings.base_currency,
         start=start,
         end=end,
         interval=interval,
@@ -368,7 +404,6 @@ def portfolio_returns_overview(
 
     returns_rows = repositories.fetch_returns_series(
         conn,
-        base_currency=settings.base_currency,
         start=start,
         end=end,
         interval="1d",

@@ -48,14 +48,19 @@ def test_unrealized_endpoint_uses_repository(monkeypatch, client):
 
 
 def test_exposure_invalid_dimension_returns_400(monkeypatch, client):
-    def fake_fetch(conn, dimension, account_id=None):
-        raise ValueError("Unsupported exposure dimension: foo")
+    called = False
 
-    monkeypatch.setattr(repositories, "fetch_exposure", fake_fetch)
+    def fake_positions(conn, account_id=None):  # pragma: no cover - should not run
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(repositories, "fetch_exposure_positions", fake_positions)
 
     response = client.get("/portfolio/exposure/foo", headers=_auth_header("apiuser", "apipass"))
     assert response.status_code == 400
     assert "Unsupported exposure dimension" in response.json()["detail"]
+    assert called is False
 
 
 def test_recent_trades_returns_items(monkeypatch, client):

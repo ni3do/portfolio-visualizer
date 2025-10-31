@@ -269,6 +269,19 @@ class SnapshotRecalculator:
             account_list = sorted(accounts)
             summaries = db.get_portfolio_history_summary(self.pool, account_list, target_ts)
 
+            previous_snapshots = {
+                account_id: summary.get("prev_snapshot_at")
+                for account_id, summary in summaries.items()
+                if summary.get("prev_snapshot_at") is not None
+            }
+
+            period_flows = self._compute_period_flows(
+                cash_movements,
+                fx_resolver,
+                previous_snapshots,
+                cutoff_utc,
+            )
+
             portfolio_rows: List[PortfolioValueSnapshot] = []
             for account_id in account_list:
                 positions_value = positions_totals.get(account_id, Decimal("0"))
@@ -279,16 +292,24 @@ class SnapshotRecalculator:
                 realized_increment = realized_totals.get(account_id, Decimal("0"))
 
                 summary = summaries.get(account_id, {})
-                prev_nav = summary.get("prev_nav") or Decimal("0")
-                prev_realized = summary.get("prev_realized") or Decimal("0")
+                prev_nav_raw = summary.get("prev_nav")
+                prev_nav = Decimal(str(prev_nav_raw)) if prev_nav_raw is not None else Decimal("0")
+                coalesced_prev_nav = (
+                    Decimal(str(prev_nav_raw)) if prev_nav_raw is not None else nav
+                )
+                prev_realized = Decimal(str(summary.get("prev_realized") or 0))
                 max_value = summary.get("max_value")
 
-                realized_cumulative = prev_realized + realized_increment
-                delta = nav - prev_nav
+                flow = period_flows.get(account_id, Decimal("0"))
 
+                realized_cumulative = prev_realized + realized_increment
+                delta_total = nav - prev_nav
+                market_delta = nav - coalesced_prev_nav - flow
+
+                denominator = coalesced_prev_nav + flow
                 ret_value = None
-                if prev_nav not in (None, Decimal("0")):
-                    ret_value = (nav - prev_nav) / prev_nav
+                if denominator not in (None, Decimal("0")):
+                    ret_value = market_delta / denominator
 
                 peak_candidate = nav
                 if max_value not in (None, Decimal("0")) and max_value > nav:
@@ -307,7 +328,8 @@ class SnapshotRecalculator:
                         nav_eur=nav,
                         unrealized_pnl_eur=unrealized,
                         realized_pnl_eur=realized_cumulative,
-                        delta_eur=delta,
+                        delta_eur=delta_total,
+                        flow_eur=flow,
                         ret=ret_value,
                         drawdown=drawdown,
                     )
@@ -614,3 +636,51 @@ class SnapshotRecalculator:
             totals[row["account_id"]] += converted
 
         return totals
+
+    def _compute_period_flows(
+        self,
+        cash_movements: Iterable[Dict[str, Any]],
+        fx_resolver: FxResolver,
+        previous_snapshots: Dict[str, datetime],
+        cutoff: datetime,
+    ) -> DefaultDict[str, Decimal]:
+        flows: DefaultDict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+        if not previous_snapshots:
+            return flows
+
+        accounts = set(previous_snapshots.keys())
+        for row in cash_movements:
+            account_id = row["account_id"]
+            if account_id not in accounts:
+                continue
+
+            movement_ts: datetime = row["date_time_utc"]
+            prev_snapshot = previous_snapshots[account_id]
+            if movement_ts is None or movement_ts <= prev_snapshot or movement_ts > cutoff:
+                continue
+
+            if not self._is_contribution(row):
+                continue
+
+            amount = Decimal(row["amount"])
+            if amount == 0:
+                continue
+
+            converted = fx_resolver.convert(amount, row.get("currency"), movement_ts)
+            if converted is None:
+                continue
+
+            flows[account_id] += converted
+
+        return flows
+
+    @staticmethod
+    def _is_contribution(entry: Dict[str, Any]) -> bool:
+        text = (entry.get("movement_type") or "").lower()
+        description = (entry.get("description") or "").lower()
+        keywords = ("deposit", "withdraw", "transfer")
+        if any(keyword in text for keyword in keywords):
+            return True
+        if any(keyword in description for keyword in keywords):
+            return True
+        return False

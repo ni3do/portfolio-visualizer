@@ -3,8 +3,7 @@
     <div>
       <h1>Instrument Mapping</h1>
       <p class="mapping__subtitle">
-        Map holdings without a Yahoo Finance ticker. Search for the correct symbol and assign it
-        to keep pricing data flowing.
+        Map holdings to Yahoo Finance tickers so prices and analytics can stay up to date.
       </p>
     </div>
     <button type="button" (click)="refresh()" [disabled]="isLoading()">
@@ -12,76 +11,21 @@
     </button>
   </header>
 
-  <div *ngIf="isLoading()" class="mapping__status">Loading unmapped instruments…</div>
+  <div *ngIf="isLoading()" class="mapping__status">Loading instruments…</div>
   <div *ngIf="!isLoading() && loadError()" class="mapping__status mapping__status--error">
     {{ loadError() }}
     <button type="button" (click)="refresh()">Try again</button>
   </div>
 
   <ng-container *ngIf="!isLoading() && !loadError()">
-    <section *ngIf="mappedInstruments().length > 0" class="mapping__section">
-      <header class="mapping__section-header">
-        <h2>Current Mappings</h2>
-        <span class="mapping__section-note">
-          Review current ticker assignments and the most recent price captured for each holding.
-        </span>
-      </header>
-      <table class="mapping__table">
-        <thead>
-          <tr>
-            <th>Instrument</th>
-            <th>Ticker Mapping</th>
-            <th>Shares</th>
-            <th>Last Price</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let item of mappedInstruments()">
-            <td>
-              <div class="mapping__instrument">
-                <strong>{{ item.symbol || '—' }}</strong>
-                <div class="mapping__name">{{ item.name || 'Unnamed instrument' }}</div>
-              </div>
-              <div class="mapping__meta">
-                <span *ngIf="item.currency">{{ item.currency }}</span>
-                <span *ngIf="item.primary_exchange">{{ item.primary_exchange }}</span>
-                <span *ngIf="item.asset_class">{{ item.asset_class }}</span>
-              </div>
-              <div class="mapping__meta">
-                <span *ngIf="item.region">{{ item.region }}</span>
-                <span *ngIf="item.country">{{ item.country }}</span>
-                <span *ngIf="item.sector">{{ item.sector }}</span>
-              </div>
-            </td>
-            <td class="mapping__ticker">
-              <code *ngIf="item.yfinance_symbol; else unmappedTicker">{{ item.yfinance_symbol }}</code>
-              <ng-template #unmappedTicker>—</ng-template>
-            </td>
-            <td class="mapping__shares">
-              {{ item.shares ?? 0 | number: '1.2-2' }}
-            </td>
-            <td class="mapping__shares">
-              <ng-container *ngIf="item.last_price !== undefined && item.last_price !== null; else noPrice">
-                {{ item.last_price | number: '1.2-2' }}
-                <div class="mapping__meta" *ngIf="item.last_price_as_of">
-                  {{ item.last_price_as_of | date: 'short' }}
-                </div>
-              </ng-container>
-              <ng-template #noPrice>—</ng-template>
-            </td>
-            <td>
-              <div class="mapping__meta mapping__meta--column">
-                <span>{{ item.last_price_as_of ? (item.last_price_as_of | date: 'shortDate') : '—' }}</span>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+    <div *ngIf="rows().length > 0" class="mapping__status mapping__status--info">
+      <strong>{{ rows().length }}</strong> instruments loaded —
+      <strong>{{ unmappedCount() }}</strong>
+      unmapped
+    </div>
 
     <div *ngIf="rows().length === 0" class="mapping__status mapping__status--success">
-      All instruments are currently mapped to Yahoo Finance tickers.
+      All instruments currently have a ticker mapping.
     </div>
 
     <table *ngIf="rows().length > 0" class="mapping__table">
@@ -90,7 +34,8 @@
           <th>Instrument</th>
           <th>Details</th>
           <th>Shares</th>
-          <th class="mapping__actions-header">Mapping</th>
+          <th>Current Mapping</th>
+          <th class="mapping__actions-header">Update Mapping</th>
         </tr>
       </thead>
       <tbody>
@@ -114,7 +59,28 @@
             </div>
           </td>
           <td class="mapping__shares">
-            {{ row.instrument.shares ?? 0 | number: '1.2-2' }}
+            {{ (row.shares ?? 0) | number: '1.2-2' }}
+          </td>
+          <td class="mapping__current">
+            <ng-container *ngIf="row.currentMapping; else unmappedTicker">
+              <code>{{ row.currentMapping }}</code>
+              <div class="mapping__meta" *ngIf="row.lastPrice !== null">
+                Last price: {{ row.lastPrice | number: '1.2-2' }}
+              </div>
+              <div class="mapping__meta" *ngIf="row.lastPriceAsOf">
+                {{ row.lastPriceAsOf | date: 'short' }}
+              </div>
+            </ng-container>
+            <ng-template #unmappedTicker>—</ng-template>
+            <button
+              type="button"
+              class="mapping__clear"
+              *ngIf="row.currentMapping"
+              (click)="onClear(row.instrument.instrument_id)"
+              [disabled]="row.saving"
+            >
+              Clear
+            </button>
           </td>
           <td>
             <div class="mapping__search">
@@ -142,7 +108,9 @@
               </div>
             </div>
             <div class="mapping__message" *ngIf="row.loading">Searching…</div>
-            <div class="mapping__message mapping__message--error" *ngIf="row.error">{{ row.error }}</div>
+            <div class="mapping__message mapping__message--error" *ngIf="row.error">
+              {{ row.error }}
+            </div>
             <ul class="mapping__suggestions" *ngIf="row.suggestions.length > 0">
               <li *ngFor="let suggestion of row.suggestions">
                 <div>

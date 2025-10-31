@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -66,6 +67,20 @@ def fetch_unmapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
             WHERE ps.shares <> 0
             GROUP BY ps.instrument_id
+        ),
+        transaction_instruments AS (
+            SELECT DISTINCT t.instrument_id
+            FROM transactions t
+            WHERE t.instrument_id IS NOT NULL
+        ),
+        all_instruments AS (
+            SELECT source.instrument_id, COALESCE(h.shares, 0) AS shares
+            FROM (
+                SELECT instrument_id FROM holdings
+                UNION
+                SELECT instrument_id FROM transaction_instruments
+            ) source
+            LEFT JOIN holdings h ON h.instrument_id = source.instrument_id
         )
         SELECT
             i.instrument_id,
@@ -78,11 +93,11 @@ def fetch_unmapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             NULLIF(i.industry, '') AS industry,
             NULLIF(i.country, '') AS country,
             NULLIF(i.region, '') AS region,
-            h.shares
+            ai.shares
         FROM instruments i
-        JOIN holdings h ON h.instrument_id = i.instrument_id
+        JOIN all_instruments ai ON ai.instrument_id = i.instrument_id
         WHERE COALESCE(NULLIF(TRIM(i.yfinance_symbol), ''), '') = ''
-        ORDER BY h.shares DESC NULLS LAST, i.symbol
+        ORDER BY ai.shares DESC NULLS LAST, i.symbol
     """
 
     with conn.cursor() as cur:
@@ -105,6 +120,20 @@ def fetch_mapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             WHERE ps.shares <> 0
             GROUP BY ps.instrument_id
         ),
+        transaction_instruments AS (
+            SELECT DISTINCT t.instrument_id
+            FROM transactions t
+            WHERE t.instrument_id IS NOT NULL
+        ),
+        all_instruments AS (
+            SELECT source.instrument_id, COALESCE(h.shares, 0) AS shares
+            FROM (
+                SELECT instrument_id FROM holdings
+                UNION
+                SELECT instrument_id FROM transaction_instruments
+            ) source
+            LEFT JOIN holdings h ON h.instrument_id = source.instrument_id
+        ),
         latest_prices AS (
             SELECT DISTINCT ON (instrument_id)
                 instrument_id,
@@ -126,14 +155,14 @@ def fetch_mapped_instruments(conn: Connection) -> List[Dict[str, object]]:
             NULLIF(i.country, '') AS country,
             NULLIF(i.region, '') AS region,
             NULLIF(TRIM(i.yfinance_symbol), '') AS yfinance_symbol,
-            h.shares,
+            ai.shares,
             lp.close AS last_price,
             lp.as_of_utc AS last_price_as_of
         FROM instruments i
-        JOIN holdings h ON h.instrument_id = i.instrument_id
+        JOIN all_instruments ai ON ai.instrument_id = i.instrument_id
         LEFT JOIN latest_prices lp ON lp.instrument_id = i.instrument_id
         WHERE COALESCE(NULLIF(TRIM(i.yfinance_symbol), ''), '') <> ''
-        ORDER BY h.shares DESC NULLS LAST, i.symbol
+        ORDER BY ai.shares DESC NULLS LAST, i.symbol
     """
 
     with conn.cursor() as cur:
@@ -326,39 +355,38 @@ def fetch_exposure(
     dimension: str,
     account_id: Optional[str],
 ) -> List[Dict[str, object]]:
-    dimension_map = {
-        "country": "COALESCE(position_values.country, 'Unassigned')",
-        "sector": "COALESCE(position_values.sector, 'Unassigned')",
-        "currency": "COALESCE(position_values.instrument_ccy, 'Unassigned')",
-        "region": "COALESCE(position_values.region, 'Unassigned')",
-        "industry": "COALESCE(position_values.asset_class, 'Unassigned')",
-    }
-    if dimension not in dimension_map:
+    if dimension not in {"country", "sector", "currency", "region", "industry"}:
         raise ValueError(f"Unsupported exposure dimension: {dimension}")
 
-    label_expr = dimension_map[dimension]
+    rows = fetch_exposure_positions(conn, account_id=account_id)
+    overrides = fetch_exposure_overrides(
+        conn, [row["instrument_id"] for row in rows]
+    )
+    aggregated = _aggregate_exposures_with_overrides(rows, dimension, overrides)
+    return aggregated
+
+
+def fetch_exposure_positions(
+    conn: Connection,
+    *,
+    account_id: Optional[str],
+) -> List[Dict[str, object]]:
     cte = _build_position_values_cte(account_id)
-    sql = cte + f"""
+    sql = cte + """
 SELECT
-    CASE
-        WHEN ie.label IS NOT NULL THEN ie.label
-        ELSE {label_expr}
-    END AS label,
-    SUM(
-        CASE
-            WHEN ie.label IS NOT NULL THEN position_values.market_value_eur * ie.weight
-            ELSE position_values.market_value_eur
-        END
-    ) AS total_eur
+    account_id,
+    instrument_id,
+    symbol,
+    instrument_ccy,
+    market_value_eur,
+    country,
+    region,
+    sector,
+    asset_class
 FROM position_values
-LEFT JOIN instrument_exposure_overrides ie
-    ON ie.instrument_id = position_values.instrument_id
-   AND ie.dimension = %(dimension)s
-WHERE market_value_eur IS NOT NULL
-GROUP BY label
-ORDER BY total_eur DESC NULLS LAST;
+WHERE market_value_eur IS NOT NULL;
 """
-    params: Dict[str, object] = {"dimension": dimension}
+    params: Dict[str, object] = {}
     if account_id:
         params["account_id"] = account_id
 
@@ -507,6 +535,95 @@ def fetch_position_return_timeseries(
     return rows
 
 
+def fetch_exposure_overrides(
+    conn: Connection,
+    instrument_ids: List[int],
+) -> Dict[tuple[int, str], List[Dict[str, object]]]:
+    if not instrument_ids:
+        return {}
+
+    sql = """
+        SELECT instrument_id, dimension, label, weight
+        FROM instrument_exposure_overrides
+        WHERE instrument_id = ANY(%(instrument_ids)s)
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(sql, {"instrument_ids": instrument_ids})
+        rows = cur.fetchall()
+
+    overrides: Dict[tuple[int, str], List[Dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        key = (row["instrument_id"], row["dimension"])
+        overrides[key].append(
+            {
+                "label": row.get("label"),
+                "weight": row.get("weight"),
+            }
+        )
+    return {key: value for key, value in overrides.items()}
+
+
+def _aggregate_exposures(
+    rows: List[Dict[str, object]],
+    dimension: str,
+) -> List[Dict[str, object]]:
+    return _aggregate_exposures_with_overrides(rows, dimension, {})
+
+
+def _aggregate_exposures_with_overrides(
+    rows: List[Dict[str, object]],
+    dimension: str,
+    overrides: Dict[tuple[int, str], List[Dict[str, object]]],
+) -> List[Dict[str, object]]:
+    label_map = {
+        "country": "country",
+        "region": "region",
+        "sector": "sector",
+        "industry": "asset_class",
+        "currency": "instrument_ccy",
+    }
+    label_key = label_map[dimension]
+
+    totals: Dict[str, Decimal] = defaultdict(Decimal)
+    for row in rows:
+        value = row.get("market_value_eur")
+        if value is None:
+            continue
+        amount = Decimal(str(row["market_value_eur"] or 0))
+        if amount == 0:
+            continue
+        instrument_id = row.get("instrument_id")
+        override_entries = overrides.get((instrument_id, dimension), [])
+        if override_entries:
+            for override in override_entries:
+                weight_raw = override.get("weight")
+                if weight_raw is None:
+                    continue
+                weight = Decimal(str(weight_raw))
+                if weight == 0:
+                    continue
+                label = override.get("label") or "Unassigned"
+                totals[label] += amount * weight
+        else:
+            label = row.get(label_key) or "Unassigned"
+            totals[label] += amount
+
+    ordered = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    return [{"label": label, "total_eur": total} for label, total in ordered]
+
+
+def build_exposure_sections(
+    rows: List[Dict[str, object]],
+    overrides: Dict[tuple[int, str], List[Dict[str, object]]],
+) -> Dict[str, List[Dict[str, object]]]:
+    dimensions = ("country", "region", "sector", "industry", "currency")
+    return {
+        dimension: _aggregate_exposures_with_overrides(rows, dimension, overrides)
+        for dimension in dimensions
+    }
+
+
 def fetch_recent_trades(
     conn: Connection,
     *,
@@ -608,14 +725,13 @@ def fetch_dividends(
 def fetch_returns_series(
     conn: Connection,
     *,
-    base_currency: str,
     start: Optional[datetime],
     end: Optional[datetime],
     interval: str,
     account_id: Optional[str],
 ) -> List[Dict[str, object]]:
     bucket = {"1h": "hour", "1d": "day"}.get(interval, "day")
-    params: Dict[str, object] = {"start": start, "end": end, "base_currency": base_currency}
+    params: Dict[str, object] = {"start": start, "end": end}
 
     sql = f"""
         WITH ranked AS (
@@ -624,6 +740,8 @@ def fetch_returns_series(
                 date_trunc('{bucket}', snapshot_at) AS bucket,
                 snapshot_at,
                 nav_eur,
+                delta_eur,
+                COALESCE(flow_eur, 0) AS flow_eur,
                 ROW_NUMBER() OVER (
                     PARTITION BY account_id, date_trunc('{bucket}', snapshot_at)
                     ORDER BY snapshot_at DESC
@@ -638,69 +756,20 @@ def fetch_returns_series(
         params["account_id"] = account_id
 
     sql += """
-        ),
-        snapshots AS (
-            SELECT
-                account_id,
-                bucket,
-                nav_eur,
-                LAG(nav_eur) OVER (PARTITION BY account_id ORDER BY bucket) AS prev_nav
-            FROM ranked
-            WHERE rn = 1
-        ),
-        contributions AS (
-            SELECT
-                cm.account_id,
-                date_trunc('{bucket}', cm.date_time_utc) AS bucket,
-                SUM(
-                    CASE
-                        WHEN cm.currency = %(base_currency)s THEN cm.amount
-                        ELSE cm.amount * fx.rate
-                    END
-                ) AS amount_base
-            FROM cash_movements cm
-            LEFT JOIN LATERAL (
-                SELECT rate
-                FROM fx_rates
-                WHERE from_ccy = cm.currency
-                  AND to_ccy = %(base_currency)s
-                  AND date_utc <= cm.date_time_utc::date
-                ORDER BY date_utc DESC
-                LIMIT 1
-            ) fx ON TRUE
-            WHERE (
-                LOWER(cm.movement_type) LIKE '%%deposit%%'
-                OR LOWER(cm.movement_type) LIKE '%%withdraw%%'
-                OR LOWER(cm.movement_type) LIKE '%%transfer%%'
-                OR LOWER(COALESCE(cm.description, '')) LIKE '%%deposit%%'
-                OR LOWER(COALESCE(cm.description, '')) LIKE '%%withdraw%%'
-                OR LOWER(COALESCE(cm.description, '')) LIKE '%%transfer%%'
-            )
-              AND (%(start)s IS NULL OR cm.date_time_utc >= %(start)s)
-              AND (%(end)s IS NULL OR cm.date_time_utc <= %(end)s)
-    """
-
-    if account_id:
-        sql += " AND cm.account_id = %(account_id)s\n"
-
-    sql += """
-            GROUP BY cm.account_id, date_trunc('{bucket}', cm.date_time_utc)
         )
         SELECT
-            s.bucket,
-            SUM(s.nav_eur) AS nav_eur,
-            SUM(s.nav_eur - COALESCE(s.prev_nav, s.nav_eur) - COALESCE(c.amount_base, 0)) AS delta_eur,
+            bucket,
+            SUM(nav_eur) AS nav_eur,
+            SUM(delta_eur - flow_eur) AS delta_eur,
             CASE
-                WHEN SUM(COALESCE(s.prev_nav, s.nav_eur) + COALESCE(c.amount_base, 0)) = 0 THEN NULL
-                ELSE SUM(s.nav_eur - COALESCE(s.prev_nav, s.nav_eur) - COALESCE(c.amount_base, 0))
-                     / SUM(COALESCE(s.prev_nav, s.nav_eur) + COALESCE(c.amount_base, 0))
+                WHEN (SUM(nav_eur) - SUM(delta_eur) + SUM(flow_eur)) = 0 THEN NULL
+                ELSE SUM(delta_eur - flow_eur)
+                     / (SUM(nav_eur) - SUM(delta_eur) + SUM(flow_eur))
             END AS return_pct
-        FROM snapshots s
-        LEFT JOIN contributions c
-          ON c.account_id = s.account_id
-         AND c.bucket = s.bucket
-        GROUP BY s.bucket
-            ORDER BY s.bucket
+        FROM ranked
+        WHERE rn = 1
+        GROUP BY bucket
+        ORDER BY bucket
     """
 
     with conn.cursor() as cur:

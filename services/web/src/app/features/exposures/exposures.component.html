@@ -1,16 +1,21 @@
-<section class="exposures-grid">
+<section class="exposures-grid" *ngIf="sections$ | async as sections; else exposureLoading">
   <div class="card" *ngFor="let section of sections">
     <header><h2>{{ section.title }}</h2></header>
-    <ng-container *ngIf="section.stream | async as exposure">
-      <div class="chart">
-        <plotly-plot
-          [data]="exposure.plot.data"
-          [layout]="exposure.plot.layout"
-          [config]="exposure.plot.config"
-          class="plot"
-        ></plotly-plot>
-      </div>
-      <ul class="exposure-list">
+    <ng-container *ngIf="section.view as exposure">
+      <ng-container *ngIf="exposure.plot; else exposureEmpty">
+        <div class="chart">
+          <plotly-plot
+            [data]="exposure.plot.data"
+            [layout]="exposure.plot.layout"
+            [config]="exposure.plot.config"
+            class="plot"
+          ></plotly-plot>
+        </div>
+      </ng-container>
+      <ng-template #exposureEmpty>
+        <p class="exposure-empty">No exposure data available.</p>
+      </ng-template>
+      <ul class="exposure-list" *ngIf="exposure.rows.length > 0">
         <li *ngFor="let slice of exposure.rows">
           <span class="exposure-label">{{ slice.label }}</span>
           <span class="exposure-value">
@@ -18,9 +23,13 @@
           </span>
         </li>
       </ul>
-      <footer class="exposure-total">
+      <footer class="exposure-total" *ngIf="exposure.rows.length > 0">
         Total: {{ formatCurrency(exposure.total) }}
       </footer>
     </ng-container>
   </div>
 </section>
+
+<ng-template #exposureLoading>
+  <p class="exposure-empty">Loading exposure data…</p>
+</ng-template>

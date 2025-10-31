@@ -243,6 +243,10 @@ SCHEMA_STATEMENTS = [
     );
     """,
     """
+    CREATE INDEX IF NOT EXISTS idx_fx_rates_pair_date
+    ON fx_rates (from_ccy, to_ccy, date_utc DESC);
+    """,
+    """
     ALTER TABLE portfolio_value_snapshot
         ADD COLUMN IF NOT EXISTS positions_value_eur NUMERIC;
     """,
@@ -269,6 +273,10 @@ SCHEMA_STATEMENTS = [
     """
     ALTER TABLE portfolio_value_snapshot
         ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    ALTER TABLE portfolio_value_snapshot
+        ADD COLUMN IF NOT EXISTS flow_eur NUMERIC;
     """,
     """
     ALTER TABLE portfolio_value_snapshot
@@ -1129,7 +1137,21 @@ def get_fx_rate_on_or_before(
             row = cur.fetchone()
 
     if not row:
-        return None
+        fallback_query = """
+        SELECT date_utc, rate, source
+        FROM fx_rates
+        WHERE from_ccy = %s AND to_ccy = %s AND date_utc >= %s
+        ORDER BY date_utc ASC
+        LIMIT 1;
+        """
+
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(fallback_query, (from_ccy, to_ccy, target_date))
+                row = cur.fetchone()
+
+        if not row:
+            return None
 
     return FxRate(
         date_utc=row["date_utc"],
@@ -1382,6 +1404,7 @@ def replace_portfolio_value_snapshot(
             unrealized_pnl_eur,
             realized_pnl_eur,
             delta_eur,
+            flow_eur,
             ret,
             drawdown,
             value_eur
@@ -1394,6 +1417,7 @@ def replace_portfolio_value_snapshot(
             %(unrealized_pnl_eur)s,
             %(realized_pnl_eur)s,
             %(delta_eur)s,
+            %(flow_eur)s,
             %(ret)s,
             %(drawdown)s,
             %(value_eur)s
@@ -1411,6 +1435,7 @@ def replace_portfolio_value_snapshot(
             "unrealized_pnl_eur": pv.unrealized_pnl_eur,
             "realized_pnl_eur": pv.realized_pnl_eur,
             "delta_eur": pv.delta_eur,
+            "flow_eur": pv.flow_eur,
             "ret": pv.ret,
             "drawdown": pv.drawdown,
             "value_eur": pv.nav_eur,
@@ -1520,7 +1545,8 @@ def get_portfolio_history_summary(
            l.prev_realized,
            l.prev_cash,
            l.prev_positions,
-           p.max_value
+           p.max_value,
+           l.snapshot_at AS prev_snapshot_at
     FROM latest l
     FULL OUTER JOIN peaks p ON p.account_id = l.account_id;
     """
@@ -1543,5 +1569,7 @@ def get_portfolio_history_summary(
             "prev_cash": row.get("prev_cash"),
             "prev_positions": row.get("prev_positions"),
             "max_value": row.get("max_value"),
+            "prev_snapshot_at": row.get("prev_snapshot_at"),
         }
     return summary
+

@@ -1,17 +1,21 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 
-import {
-  MappedInstrument,
-  UnmappedInstrument,
-  YFinanceSearchResult
-} from '../../api/models';
+import { MappedInstrument, UnmappedInstrument, YFinanceSearchResult } from '../../api/models';
 import { PortfolioApiService } from '../../api/portfolio-api.service';
 
+const hasMapping = (
+  instrument: UnmappedInstrument | MappedInstrument
+): instrument is MappedInstrument => 'yfinance_symbol' in instrument;
+
 interface InstrumentMappingRow {
-  instrument: UnmappedInstrument;
+  instrument: UnmappedInstrument | MappedInstrument;
+  currentMapping: string | null;
+  shares: number | null;
+  lastPrice: number | null;
+  lastPriceAsOf: string | null;
   control: FormControl<string>;
   suggestions: YFinanceSearchResult[];
   loading: boolean;
@@ -32,7 +36,9 @@ export class InstrumentMappingComponent {
   readonly isLoading = signal<boolean>(false);
   readonly loadError = signal<string | null>(null);
   readonly rows = signal<InstrumentMappingRow[]>([]);
-  readonly mappedInstruments = signal<MappedInstrument[]>([]);
+  readonly unmappedCount = computed(
+    () => this.rows().filter((row) => !row.currentMapping).length
+  );
 
   constructor() {
     this.fetchData();
@@ -103,13 +109,30 @@ export class InstrumentMappingComponent {
       return;
     }
 
+    const normalizedTarget = target.toUpperCase();
+    const normalizedCurrent = row.currentMapping?.toUpperCase() ?? null;
+
+    if (normalizedTarget === normalizedCurrent) {
+      this.updateRow(instrumentId, (current) => ({
+        ...current,
+        error: 'This instrument is already mapped to that ticker.',
+        suggestions: current.suggestions
+      }));
+      return;
+    }
+
+    const payload = normalizedTarget;
+
+    row.control.setValue(payload, { emitEvent: false });
+
     this.updateRow(instrumentId, (current) => ({
       ...current,
       saving: true,
-      error: undefined
+      error: undefined,
+      suggestions: []
     }));
 
-    this.api.updateInstrumentMapping(instrumentId, target).subscribe({
+    this.api.updateInstrumentMapping(instrumentId, payload).subscribe({
       next: () => {
         this.fetchData();
       },
@@ -123,20 +146,70 @@ export class InstrumentMappingComponent {
     });
   }
 
+  onClear(instrumentId: number): void {
+    const row = this.findRow(instrumentId);
+    if (!row || row.currentMapping === null) {
+      return;
+    }
+
+    row.control.setValue('', { emitEvent: false });
+
+    this.updateRow(instrumentId, (current) => ({
+      ...current,
+      saving: true,
+      error: undefined,
+      suggestions: []
+    }));
+
+    this.api.updateInstrumentMapping(instrumentId, null).subscribe({
+      next: () => {
+        this.fetchData();
+      },
+      error: () => {
+        this.updateRow(instrumentId, (current) => ({
+          ...current,
+          saving: false,
+          error: 'Failed to clear mapping. Please try again.'
+        }));
+      }
+    });
+  }
+
   private fetchData(): void {
     this.isLoading.set(true);
     this.loadError.set(null);
     this.rows.set([]);
-    this.mappedInstruments.set([]);
 
     forkJoin({
       unmapped: this.api.getUnmappedInstruments(),
       mapped: this.api.getMappedInstruments()
     }).subscribe({
       next: ({ unmapped, mapped }) => {
-        const rows = unmapped.instruments.map((instrument) => this.createRow(instrument));
+        const merged = new Map<number, MappedInstrument | UnmappedInstrument>();
+
+        for (const instrument of mapped.instruments) {
+          merged.set(instrument.instrument_id, instrument);
+        }
+        for (const instrument of unmapped.instruments) {
+          if (!merged.has(instrument.instrument_id)) {
+            merged.set(instrument.instrument_id, instrument);
+          }
+        }
+
+        const rows = Array.from(merged.values()).map((instrument) => this.createRow(instrument));
+
+        rows.sort((a, b) => {
+          const aHasMapping = a.currentMapping ? 1 : 0;
+          const bHasMapping = b.currentMapping ? 1 : 0;
+          if (aHasMapping !== bHasMapping) {
+            return aHasMapping - bHasMapping;
+          }
+          const aShares = a.shares ?? 0;
+          const bShares = b.shares ?? 0;
+          return Number(bShares) - Number(aShares);
+        });
+
         this.rows.set(rows);
-        this.mappedInstruments.set(mapped.instruments);
         this.isLoading.set(false);
       },
       error: () => {
@@ -146,10 +219,19 @@ export class InstrumentMappingComponent {
     });
   }
 
-  private createRow(instrument: UnmappedInstrument): InstrumentMappingRow {
+  private createRow(instrument: UnmappedInstrument | MappedInstrument): InstrumentMappingRow {
+    const sharesValue = instrument.shares ?? null;
+    const mapped = hasMapping(instrument);
+    const currentMapping = mapped ? instrument.yfinance_symbol ?? null : null;
+    const lastPrice = mapped && instrument.last_price !== undefined ? Number(instrument.last_price) : null;
+    const lastPriceAsOf = mapped ? instrument.last_price_as_of ?? null : null;
     return {
       instrument,
-      control: new FormControl('', { nonNullable: true }),
+      currentMapping,
+      shares: sharesValue !== null ? Number(sharesValue) : null,
+      lastPrice,
+      lastPriceAsOf,
+      control: new FormControl(currentMapping ?? '', { nonNullable: true }),
       suggestions: [],
       loading: false,
       saving: false
@@ -171,7 +253,7 @@ export class InstrumentMappingComponent {
     }
     const current = rows[index];
     const updated = mutate(current);
-    rows[index] = { ...updated, control: current.control };
+    rows[index] = { ...current, ...updated, control: current.control };
     this.rows.set([...rows]);
   }
 }

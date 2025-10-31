@@ -33,6 +33,14 @@ class ExposureResponse(BaseModel):
     total_eur: float
 
 
+class PortfolioExposureResponse(BaseModel):
+    country: ExposureResponse
+    region: ExposureResponse
+    sector: ExposureResponse
+    industry: ExposureResponse
+    currency: ExposureResponse
+
+
 class PortfolioPosition(BaseModel):
     account_id: str
     symbol: str

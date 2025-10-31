@@ -5,6 +5,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import {
   ExposureResponse,
+  PortfolioExposureResponse,
   PortfolioSeries,
   PositionsResponse,
   DividendsResponse,
@@ -50,6 +51,13 @@ export class PortfolioApiService {
   ): Observable<ExposureResponse> {
     const params = this.composeParams({ accountId });
     return this.http.get<ExposureResponse>(`${this.apiBase}/portfolio/exposure/${dimension}`, {
+      params
+    });
+  }
+
+  getExposureSnapshot(accountId?: string): Observable<PortfolioExposureResponse> {
+    const params = this.composeParams({ accountId });
+    return this.http.get<PortfolioExposureResponse>(`${this.apiBase}/portfolio/exposures`, {
       params
     });
   }

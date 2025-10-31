@@ -18,6 +18,14 @@ export interface ExposureResponse {
   total_eur: number;
 }
 
+export interface PortfolioExposureResponse {
+  country: ExposureResponse;
+  region: ExposureResponse;
+  sector: ExposureResponse;
+  industry: ExposureResponse;
+  currency: ExposureResponse;
+}
+
 export interface UnrealizedItem {
   symbol: string;
   name?: string;

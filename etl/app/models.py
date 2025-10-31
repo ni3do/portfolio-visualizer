@@ -102,6 +102,7 @@ class PortfolioValueSnapshot:
     unrealized_pnl_eur: Optional[Decimal] = None
     realized_pnl_eur: Optional[Decimal] = None
     delta_eur: Optional[Decimal] = None
+    flow_eur: Optional[Decimal] = None
     ret: Optional[Decimal] = None
     drawdown: Optional[Decimal] = None
     created_at: Optional[datetime] = None
