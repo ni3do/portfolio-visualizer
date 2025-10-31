@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from collections import defaultdict
+from typing import DefaultDict, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from psycopg import sql
 from psycopg.rows import dict_row
@@ -1094,6 +1095,34 @@ def get_hourly_prices_between(
         with conn.cursor() as cur:
             cur.execute(query, (instrument_id, start_at, end_at))
             return cur.fetchall()
+
+
+def get_hourly_prices_between_bulk(
+    pool: ConnectionPool,
+    instrument_ids: Sequence[int],
+    start_at: datetime,
+    end_at: datetime,
+) -> Dict[int, List[Dict[str, object]]]:
+    if not instrument_ids:
+        return {}
+
+    query = """
+    SELECT instrument_id, as_of_utc, close, currency, source
+    FROM prices_hourly
+    WHERE instrument_id = ANY(%s)
+      AND as_of_utc BETWEEN %s AND %s
+    ORDER BY instrument_id, as_of_utc ASC;
+    """
+
+    results: DefaultDict[int, List[Dict[str, object]]] = defaultdict(list)
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (list(instrument_ids), start_at, end_at))
+            for row in cur.fetchall():
+                results[row["instrument_id"]].append(row)
+
+    return dict(results)
 
 
 def get_fx_rates_for_date(pool: ConnectionPool, target_date: date):
