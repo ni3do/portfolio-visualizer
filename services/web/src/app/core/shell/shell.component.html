@@ -1,15 +1,28 @@
 <div class="layout">
   <header class="layout__header">
-    <div class="layout__brand">
-      <span class="layout__logo">PV</span>
-      <span class="layout__title">Portfolio Visualizer</span>
+    <div class="layout__header-left">
+      <button
+        type="button"
+        class="layout__menu-toggle"
+        [attr.aria-expanded]="isSidebarOpen()"
+        aria-haspopup="true"
+        aria-controls="primary-navigation"
+        (click)="toggleSidebar()"
+      >
+        <span class="sr-only">Toggle navigation</span>
+        <span aria-hidden="true">☰</span>
+      </button>
+      <div class="layout__brand">
+        <span class="layout__logo">PV</span>
+        <span class="layout__title">Portfolio Visualizer</span>
+      </div>
     </div>
+    <nav class="layout__nav layout__nav--desktop">
+      <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
+        {{ link.label }}
+      </a>
+    </nav>
     <div class="layout__actions">
-      <nav class="layout__nav">
-        <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
-          {{ link.label }}
-        </a>
-      </nav>
       <ng-container *ngIf="theme$ | async as theme">
         <button
           type="button"
@@ -23,11 +36,28 @@
       </ng-container>
     </div>
   </header>
-  <div class="layout__content">
-    <aside class="layout__sidebar">
-      <a *ngFor="let link of links()" [routerLink]="link.path" routerLinkActive="is-active">
-        {{ link.label }}
-      </a>
+  <div class="layout__content" [class.layout__content--sidebar-open]="isSidebarOpen()">
+    <div
+      class="layout__backdrop"
+      *ngIf="isSidebarOpen()"
+      (click)="closeSidebar()"
+      aria-hidden="true"
+    ></div>
+    <aside
+      class="layout__sidebar"
+      [class.is-open]="isSidebarOpen()"
+      id="primary-navigation"
+    >
+      <nav class="layout__nav layout__nav--sidebar">
+        <a
+          *ngFor="let link of links()"
+          [routerLink]="link.path"
+          routerLinkActive="is-active"
+          (click)="handleNavigation()"
+        >
+          {{ link.label }}
+        </a>
+      </nav>
     </aside>
     <main class="layout__main">
       <router-outlet />

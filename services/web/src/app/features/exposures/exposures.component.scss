@@ -64,3 +64,28 @@
   margin: 0.75rem 0;
   color: var(--color-muted);
 }
+
+@media (max-width: 900px) {
+  .exposures-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+
+  .card {
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .exposures-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
+  .chart {
+    height: 220px;
+  }
+}

@@ -73,8 +73,16 @@ export class ExposuresComponent {
 
   private toView(response: ExposureResponse, theme: Theme, dimension: Dimension): ExposureView {
     const colors = this.themeService.getColors(theme);
-    const labels = response.slices.map((slice) => slice.label || 'Unassigned');
-    const values = response.slices.map((slice) => Math.abs(slice.value_eur));
+    const slices = response.slices
+      .map((slice) => ({
+        label: slice.label?.trim() ? slice.label : 'Unassigned',
+        value: Math.abs(slice.value_eur ?? 0),
+        percent: slice.weight ?? 0
+      }))
+      .filter((slice) => Number.isFinite(slice.value) && slice.value > 0);
+
+    const labels = slices.map((slice) => slice.label);
+    const values = slices.map((slice) => slice.value);
     const totalAbs = values.reduce((acc, value) => acc + value, 0);
 
     const hasValues = totalAbs > 1e-6;
@@ -107,14 +115,15 @@ export class ExposuresComponent {
             autosize: true,
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
-            legend: {
-              orientation: 'h',
-              yanchor: 'top',
-              y: -0.15,
-              xanchor: 'center',
-              x: 0.5,
-              font: { color: colors.text }
-            },
+              legend: {
+                orientation: 'h',
+                yanchor: 'top',
+                y: -0.15,
+                xanchor: 'center',
+                x: 0.5,
+                font: { color: colors.text },
+                itemclick: 'toggleothers'
+              },
             font: { color: colors.text }
           },
           config: {
@@ -124,14 +133,7 @@ export class ExposuresComponent {
         }
       : null;
 
-    const rows = response.slices
-      .map((slice) => ({
-        label: slice.label || 'Unassigned',
-        value: Math.abs(slice.value_eur),
-        percent: slice.weight
-      }))
-      .filter((slice) => slice.value > 0)
-      .slice(0, 12);
+    const rows = slices.slice(0, 12);
 
     return {
       plot,
