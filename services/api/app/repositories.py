@@ -8,6 +8,11 @@ from typing import Dict, List, Optional
 from psycopg import Connection
 
 
+DecimalZero = Decimal("0")
+DecimalOne = Decimal("1")
+_NORMALIZATION_EPSILON = Decimal("1e-9")
+
+
 def fetch_portfolio_nav_series(
     conn: Connection,
     *,
@@ -212,24 +217,6 @@ WITH base_currency AS (
 latest_snapshot AS (
     SELECT MAX(snapshot_at) AS snapshot_at FROM positions_snapshot
 ),
-latest_prices AS (
-    SELECT DISTINCT ON (instrument_id)
-        instrument_id,
-        close,
-        currency,
-        as_of_utc
-    FROM prices
-    ORDER BY instrument_id, as_of_utc DESC
-),
-latest_fx AS (
-    SELECT from_ccy, to_ccy, rate
-    FROM (
-        SELECT fr.*,
-               ROW_NUMBER() OVER (PARTITION BY from_ccy, to_ccy ORDER BY date_utc DESC) AS rn
-        FROM fx_rates fr
-    ) ranked
-    WHERE rn = 1
-),
 position_values AS (
     SELECT
         ps.account_id,
@@ -242,30 +229,43 @@ position_values AS (
         i.sector,
         i.region,
         i.asset_class,
-        COALESCE(lp.currency, i.currency) AS instrument_ccy,
-        lp.close AS last_price,
-        lp.as_of_utc AS last_price_as_of,
+        COALESCE(price.currency, i.currency) AS instrument_ccy,
+        price.close AS last_price,
+        price.as_of_utc AS last_price_as_of,
         bc.code AS base_ccy,
         CASE
-            WHEN lp.close IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
-            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN ps.shares * lp.close
+            WHEN price.close IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
+            WHEN COALESCE(price.currency, i.currency) = bc.code THEN ps.shares * price.close
             WHEN fx.rate IS NULL THEN COALESCE(ps.cost_basis_eur, 0)
-            ELSE ps.shares * lp.close * fx.rate
+            ELSE ps.shares * price.close * fx.rate
         END AS market_value_eur,
         CASE
-            WHEN lp.close IS NULL THEN 0
-            WHEN COALESCE(lp.currency, i.currency) = bc.code THEN (ps.shares * lp.close) - COALESCE(ps.cost_basis_eur, 0)
+            WHEN price.close IS NULL THEN 0
+            WHEN COALESCE(price.currency, i.currency) = bc.code THEN (ps.shares * price.close) - COALESCE(ps.cost_basis_eur, 0)
             WHEN fx.rate IS NULL THEN 0
-            ELSE (ps.shares * lp.close * fx.rate) - COALESCE(ps.cost_basis_eur, 0)
+            ELSE (ps.shares * price.close * fx.rate) - COALESCE(ps.cost_basis_eur, 0)
         END AS unrealized_pnl_eur
     FROM positions_snapshot ps
     JOIN latest_snapshot ls ON ls.snapshot_at = ps.snapshot_at
     JOIN instruments i ON i.instrument_id = ps.instrument_id
-    LEFT JOIN latest_prices lp ON lp.instrument_id = ps.instrument_id
     CROSS JOIN base_currency bc
-    LEFT JOIN latest_fx fx
-        ON fx.from_ccy = COALESCE(lp.currency, i.currency)
-       AND fx.to_ccy = bc.code
+    LEFT JOIN LATERAL (
+        SELECT close, currency, as_of_utc
+        FROM prices
+        WHERE instrument_id = ps.instrument_id
+          AND as_of_utc <= ps.snapshot_at
+        ORDER BY as_of_utc DESC
+        LIMIT 1
+    ) price ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT rate
+        FROM fx_rates
+        WHERE from_ccy = COALESCE(price.currency, i.currency)
+          AND to_ccy = bc.code
+          AND date_utc <= ps.snapshot_at::date
+        ORDER BY date_utc DESC
+        LIMIT 1
+    ) fx ON TRUE
     WHERE ps.shares <> 0
     {account_filter}
 )
@@ -585,7 +585,7 @@ def _aggregate_exposures_with_overrides(
     }
     label_key = label_map[dimension]
 
-    totals: Dict[str, Decimal] = defaultdict(Decimal)
+    totals: Dict[str, Decimal] = defaultdict(lambda: DecimalZero)
     for row in rows:
         value = row.get("market_value_eur")
         if value is None:
@@ -596,15 +596,35 @@ def _aggregate_exposures_with_overrides(
         instrument_id = row.get("instrument_id")
         override_entries = overrides.get((instrument_id, dimension), [])
         if override_entries:
+            cleaned: List[tuple[str, Decimal]] = []
+            total_weight = DecimalZero
             for override in override_entries:
                 weight_raw = override.get("weight")
                 if weight_raw is None:
                     continue
                 weight = Decimal(str(weight_raw))
-                if weight == 0:
+                if weight <= 0:
                     continue
                 label = override.get("label") or "Unassigned"
-                totals[label] += amount * weight
+                cleaned.append((label, weight))
+                total_weight += weight
+
+            if not cleaned:
+                label = row.get(label_key) or "Unassigned"
+                totals[label] += amount
+                continue
+
+            scale = DecimalOne
+            if total_weight > DecimalOne:
+                scale = DecimalOne / total_weight
+
+            for label, weight in cleaned:
+                totals[label] += amount * weight * scale
+
+            if total_weight < DecimalOne - _NORMALIZATION_EPSILON:
+                leftover = DecimalOne - total_weight
+                fallback_label = row.get(label_key) or "Unassigned"
+                totals[fallback_label] += amount * leftover
         else:
             label = row.get(label_key) or "Unassigned"
             totals[label] += amount

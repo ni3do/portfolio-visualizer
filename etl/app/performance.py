@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from . import db
+from .models import Price
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,9 @@ class PerformanceCalculator:
         price_map = db.get_latest_prices_with_hourly(self.pool, instrument_ids, snapshot_at)
 
         window_start = snapshot_at - timedelta(hours=hourly_window)
+        hourly_price_map = db.get_hourly_prices_between_bulk(
+            self.pool, instrument_ids, window_start, snapshot_at
+        )
         rows: List[PositionPnlRow] = []
         for row in positions:
             instrument_id = row["instrument_id"]
@@ -197,27 +201,15 @@ class PerformanceCalculator:
             )
 
             price_entry = price_map.get(instrument_id)
-            value_eur = None
-            unrealized = None
-            simple_return = None
-            if price_entry:
-                value_ccy = shares * price_entry.close
-                converted = self.fx.convert(value_ccy, price_entry.currency, snapshot_at)
-                if converted is not None:
-                    value_eur = converted
-                    unrealized = converted - cost_eur
-                    if cost_eur != 0:
-                        simple_return = unrealized / cost_eur
+            (
+                value_eur,
+                unrealized,
+                simple_return,
+            ) = self._calculate_valuation_metrics(price_entry, shares, cost_eur, snapshot_at)
 
-            hourly_return = None
-            hourly_prices = db.get_hourly_prices_between(
-                self.pool, instrument_id, window_start, snapshot_at
+            hourly_return = self._calculate_hourly_return(
+                hourly_price_map.get(instrument_id, [])
             )
-            if hourly_prices:
-                first_close = Decimal(str(hourly_prices[0]["close"]))
-                last_close = Decimal(str(hourly_prices[-1]["close"]))
-                if first_close != 0:
-                    hourly_return = (last_close - first_close) / first_close
 
             rows.append(
                 PositionPnlRow(
@@ -236,6 +228,42 @@ class PerformanceCalculator:
             )
 
         return snapshot_at, rows
+
+    def _calculate_valuation_metrics(
+        self,
+        price_entry: Optional[Price],
+        shares: Decimal,
+        cost_eur: Decimal,
+        snapshot_at: datetime,
+    ) -> tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
+        if not price_entry:
+            return None, None, None
+
+        value_ccy = shares * price_entry.close
+        converted = self.fx.convert(value_ccy, price_entry.currency, snapshot_at)
+        if converted is None:
+            return None, None, None
+
+        unrealized = converted - cost_eur
+        simple_return = None
+        if cost_eur != 0:
+            simple_return = unrealized / cost_eur
+
+        return converted, unrealized, simple_return
+
+    @staticmethod
+    def _calculate_hourly_return(
+        hourly_prices: Sequence[Dict[str, object]]
+    ) -> Optional[Decimal]:
+        if not hourly_prices:
+            return None
+
+        first_close = Decimal(str(hourly_prices[0]["close"]))
+        if first_close == 0:
+            return None
+
+        last_close = Decimal(str(hourly_prices[-1]["close"]))
+        return (last_close - first_close) / first_close
 
     def _load_cash_flows(
         self, account_id: str, start_at: datetime, end_at: datetime
